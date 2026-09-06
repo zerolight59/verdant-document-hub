@@ -1,4 +1,4 @@
-from seed import small_pdf
+from scripts.seed_demo import small_pdf
 
 
 def test_demo_pdf_is_a_valid_pdf_container():

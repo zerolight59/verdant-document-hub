@@ -1,430 +1,415 @@
 # Verdant Codebase and Application Guide
 
-This handbook explains how the current Verdant prototype is organized, how a user action moves through the application, and where to make common changes. It describes the code as it exists on this branch; it is not a future design proposal.
+This handbook explains the PostgreSQL product architecture, how a browser action moves through Verdant, and where to make common changes. It describes the code on the `product-architecture-postgresql` branch.
 
-For installation instructions, see [Local Windows Installation (No Docker)](LOCAL_INSTALLATION_WINDOWS.md). For the reasoning behind the database structure, see [Database review and implemented changes](schema-notes.md).
+Related documents:
 
-## 1. What Verdant is
+- [Docker-free Windows installation](LOCAL_INSTALLATION_WINDOWS.md)
+- [MySQL employee migration](MYSQL_TO_POSTGRESQL_MIGRATION.md)
+- [Database design decisions](schema-notes.md)
 
-Verdant is an internal document-management application with two related areas:
+## 1. Product boundary
 
-1. **Controlled project documents** — a project owner creates stages and required document slots, assigns a responsible employee and one reviewer, controls access, and tracks every uploaded version through review.
-2. **Company research library** — authenticated employees upload files into nested classifications. Research does not use the project review workflow, but an administrator can add an endorsement badge and a research document can be linked to a project.
+Verdant has two document areas:
 
-Verdant is deliberately not a project-planning system. A project is currently a container for lifecycle stages, document requirements, permissions, versions, and reviews. It can later be connected to a separate planning system.
+1. **Controlled project documentation** — project lifecycle stages, required document slots, responsible employees, reviewers, permissions, immutable versions, decisions, and audit history.
+2. **Company research library** — nested classifications, employee uploads, versions, endorsements, and optional project links without the controlled review workflow.
 
-## 2. The system at a glance
+A Verdant project is a document-governance container. Scheduling, budgets, tasks, and project planning belong to a separate future product or integration.
+
+## 2. Runtime architecture
 
 ```mermaid
 flowchart LR
-    U[Employee in browser] --> R[React / Vinext frontend]
-    R -->|JSON or multipart request| F[FastAPI]
-    F --> A[Authentication and permission checks]
-    A --> S[SQLAlchemy business operations]
-    S --> M[(MySQL metadata)]
-    S --> D[Document storage folder]
-    S --> L[(Audit log)]
-    F -->|Authenticated inline file response| R
+    Browser[Employee browser] --> Frontend[React / Vinext frontend]
+    Frontend -->|JSON and multipart requests| API[FastAPI]
+    API --> Auth[JWT authentication]
+    API --> Permissions[Server-side permissions]
+    API --> Services[Business services]
+    Services --> PostgreSQL[(PostgreSQL)]
+    Services --> Storage[STORAGE_ROOT]
+    Services --> Audit[(Audit records)]
+    API -->|Authorized inline file| Frontend
 ```
 
-The browser never connects directly to MySQL or the document folder. It calls the FastAPI endpoints. FastAPI validates the signed-in employee and their permissions, reads or changes database rows, and reads or writes document files.
+The frontend never connects directly to PostgreSQL or the storage folder. FastAPI is the security boundary and source of authorization decisions.
 
-### Source-of-truth boundaries
+### Sources of truth
 
-- **MySQL** stores employees, projects, permissions, workflow status, version metadata, checksums, endorsements, and audit entries.
-- **`STORAGE_ROOT`** stores the actual uploaded file bytes.
-- **React state** holds the data currently displayed in one browser session. It is refreshed from FastAPI after actions.
-- **Alembic migrations** define the installed database structure. The SQLAlchemy model describes the desired structure used by Python.
+- PostgreSQL stores identity, projects, requirements, access, workflow status, file metadata, checksums, review history, research metadata, and audit history.
+- `STORAGE_ROOT` stores uploaded file bytes.
+- Alembic records the PostgreSQL schema version.
+- React state is temporary display state and is refreshed from FastAPI.
+- Future embeddings will be derived indexes, not the authoritative document data.
 
-A database backup without the storage folder is incomplete, and a storage-folder backup without MySQL loses the document relationships and history. Back up both together.
+Back up PostgreSQL and `STORAGE_ROOT` together.
 
-## 3. Top-level folder map
+## 3. Repository structure
 
 ```text
 verdant-document-hub/
-├── app/                         Active React application
-├── components/ui/               Reusable visual controls
-├── hooks/                       Shared React hooks
-├── lib/                         Small frontend utilities
 ├── backend/
-│   ├── app/                     FastAPI application
-│   │   └── routers/             API endpoints grouped by feature
-│   ├── alembic/                 Database migrations
-│   ├── tests/                   Backend tests
-│   ├── storage/                 Default development file storage
-│   └── seed.py                  Optional demonstration records
-├── docs/                        Project documentation and original diagram
-├── public/                      Browser-served static files
-├── package.json                 Frontend packages and commands
-└── README.md                    Project introduction and quick start
+│   ├── alembic/
+│   │   ├── env.py
+│   │   └── versions/0001_postgresql_baseline.py
+│   ├── app/
+│   │   ├── core/
+│   │   │   ├── config.py
+│   │   │   ├── database.py
+│   │   │   └── security.py
+│   │   ├── models/
+│   │   │   ├── common.py
+│   │   │   ├── enums.py
+│   │   │   ├── employee.py
+│   │   │   ├── project.py
+│   │   │   ├── document.py
+│   │   │   ├── research.py
+│   │   │   └── audit.py
+│   │   ├── schemas/
+│   │   ├── routers/
+│   │   ├── services/
+│   │   └── main.py
+│   ├── scripts/
+│   ├── tests/
+│   ├── .env.example
+│   ├── alembic.ini
+│   └── pyproject.toml
+├── frontend/
+│   ├── app/
+│   │   ├── features/auth/login-view.tsx
+│   │   ├── api-client.ts
+│   │   ├── domain-types.ts
+│   │   ├── presentation.ts
+│   │   ├── verdant-app.tsx
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── components/ui/
+│   ├── hooks/
+│   ├── lib/
+│   ├── public/
+│   ├── .env.example
+│   └── package.json
+└── docs/
 ```
 
-## 4. A request from beginning to end
+There are no Docker runtime files on this branch.
 
-The project-document upload flow is a useful example:
+## 4. Request flow
+
+A project-document upload shows the normal pattern:
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant UI as app/verdant-app.tsx
-    participant Client as app/api-client.ts
-    participant API as routers/documents.py
-    participant Auth as security.py + permissions.py
-    participant DB as MySQL
-    participant Files as STORAGE_ROOT
+    participant UI as frontend/app/verdant-app.tsx
+    participant Client as frontend/app/api-client.ts
+    participant Router as routers/documents.py
+    participant Permission as services/permission_service.py
+    participant Storage as services/storage_service.py
+    participant DB as PostgreSQL
 
-    User->>UI: Select a file for a requirement
-    UI->>Client: POST multipart form with JWT
-    Client->>API: /api/documents/requirements/{id}/versions
-    API->>Auth: Validate employee and EDIT/MANAGE access
-    API->>Files: Save bytes under projects/project-id/requirement-id
-    API->>DB: Create Document/DocumentVersion and set status DRAFT
-    API->>DB: Add audit row and commit
-    API-->>UI: Return version number and status
-    UI->>API: Reload project dashboard
-    API-->>UI: Return current project state
+    User->>UI: Select file
+    UI->>Client: POST multipart request
+    Client->>Router: Bearer token + file
+    Router->>Permission: Require EDIT or MANAGE
+    Router->>Storage: Stream with size limit
+    Storage-->>Router: Path, size, MIME type, SHA-256
+    Router->>DB: Add version, set DRAFT, add audit row
+    Router->>DB: Commit one transaction
+    alt Database transaction fails
+        Router->>Storage: Remove stored file
+    end
+    Router-->>UI: Version and status
+    UI->>Router: Reload project dashboard
 ```
 
-Most modifying operations follow the same pattern:
+Most requests follow this order:
 
-1. A form or button handler in `app/verdant-app.tsx` calls `api()`.
-2. `app/api-client.ts` adds the bearer token and sends the request.
-3. A router function in `backend/app/routers/` validates the request.
-4. `backend/app/security.py` identifies the employee.
-5. `backend/app/permissions.py` applies project or document access rules when needed.
-6. SQLAlchemy changes MySQL records; upload endpoints also write a file.
-7. `write_audit()` adds an audit entry in the same database transaction.
-8. The frontend reloads the project or workspace data and redraws the screen.
+1. A React event handler calls `api()` or `fileBlob()`.
+2. `api-client.ts` adds the JWT bearer token.
+3. A FastAPI router validates the HTTP request.
+4. `core/security.py` loads the active employee.
+5. `permission_service.py` enforces server-side access.
+6. A service or router changes PostgreSQL and, for uploads, storage.
+7. `audit_service.py` adds the trace record to the same transaction.
+8. The frontend refreshes authoritative data and redraws.
 
-## 5. Frontend: what each important file does
-
-### Active application files
+## 5. Frontend files
 
 | File | Responsibility | Change it when… |
 |---|---|---|
-| `app/page.tsx` | Root page entry point. It renders `VerdantApp`. | You want the root URL to render a different top-level component. |
-| `app/layout.tsx` | HTML shell, fonts, page title, description, and global stylesheet import. | You change browser metadata, global fonts, or the application shell. |
-| `app/verdant-app.tsx` | The current working UI and its client-side behavior: login, navigation, state, forms, API calls, projects, requirements, versions, review actions, research, search, audit display, and the file viewer. | You change a screen, button, form, displayed field, frontend workflow, or which endpoint is called. This is currently the main frontend file. |
-| `app/api-client.ts` | Base API URL, JSON/multipart request handling, bearer-token header, API error extraction, and authenticated file downloads. | The API address, request headers, authentication transport, or error handling changes. |
-| `app/globals.css` | Tailwind imports, color variables, typography, global styling, accessibility motion behavior, and login layout. | You change the overall visual theme or global CSS. |
-| `components/ui/*.tsx` | Reusable shadcn/Base UI controls such as buttons, cards, dialogs, inputs, tables, tabs, and tooltips. | You need to change a control everywhere or add a reusable UI primitive. Prefer composing these from the feature UI instead of editing them for one screen. |
-| `lib/utils.ts` | Shared frontend class-name helper used by UI controls. | The shared CSS-class merge behavior changes. |
-| `hooks/use-mobile.ts` | Reusable mobile-screen detection hook. | Responsive logic needs a shared programmatic breakpoint. |
+| `frontend/app/page.tsx` | Root route; renders Verdant. | The root page changes. |
+| `frontend/app/layout.tsx` | HTML shell, metadata, fonts, global CSS. | Title, metadata, fonts, or global shell changes. |
+| `frontend/app/verdant-app.tsx` | Authenticated workspace state, API actions, navigation, project/research/audit screens, forms, file viewer. | A main workflow, screen, button, or endpoint call changes. |
+| `frontend/app/features/auth/login-view.tsx` | Employee ID/username login screen. | Login presentation or fields change. |
+| `frontend/app/domain-types.ts` | Frontend representations of API data. | The backend response shape changes. |
+| `frontend/app/presentation.ts` | Status labels and status color mapping. | A status name or visual treatment changes. |
+| `frontend/app/api-client.ts` | API base URL, bearer token, JSON/form requests, errors, authenticated file blobs. | Transport, token header, base URL, or error handling changes. |
+| `frontend/app/globals.css` | Tailwind imports, design tokens, global theme, login layout. | Product-wide appearance changes. |
+| `frontend/components/ui/*.tsx` | Shared shadcn/Base UI primitives. | A reusable control changes everywhere. Avoid editing for one feature. |
+| `frontend/package.json` | Node requirement, packages, build/lint/start commands. | A frontend dependency or command changes. |
+| `frontend/.env.local` | Local API URL; ignored by Git. | Backend address changes. |
 
-### Present but not used by the working page
+`verdant-app.tsx` is still the largest frontend file. Authentication and domain types are already extracted; future feature work should continue by moving project, research, audit, and file-viewer sections into their own feature components without changing behavior at the same time.
 
-The following files are remnants of the earlier visual-only prototype:
-
-- `app/login.tsx`
-- `app/project-views.tsx`
-- `app/document-panels.tsx`
-- `app/prototype-components.tsx`
-- `app/prototype-data.ts`
-- `app/research-audit-views.tsx`
-- `app/use-prototype-tools.ts`
-
-They import one another, but the active `app/page.tsx` → `app/verdant-app.tsx` path does not import them. Editing them will not change the current application. Before reusing or deleting them, confirm with an import search such as:
-
-```powershell
-rg "prototype-data|project-views|document-panels" app
-```
-
-### Frontend configuration files
+## 6. Backend foundation
 
 | File | Responsibility |
 |---|---|
-| `package.json` | Node version requirement, frontend dependencies, and `dev`, `build`, `start`, `lint`, and `format` commands. |
-| `package-lock.json` | Exact dependency versions installed by `npm ci`. Commit it when dependencies change. Do not hand-edit it. |
-| `vite.config.ts` | Connects Vinext and Tailwind to Vite. |
-| `next.config.ts` | Next-compatible configuration consumed by Vinext; currently has no custom settings. |
-| `tsconfig.json` | TypeScript strictness, module handling, included files, and the `@/*` path alias. |
-| `components.json` | shadcn component style and import aliases. |
-| `.oxlintrc.json` | Frontend lint configuration. |
-| `.oxfmtrc.json` | Frontend formatting configuration. |
-| `.env.local` | Local frontend API URL. It is intentionally ignored by Git and must not contain committed secrets. |
+| `backend/app/main.py` | Creates FastAPI, CORS, routes, OpenAPI, and health endpoint. |
+| `backend/app/core/config.py` | Reads separate PostgreSQL settings and safely constructs the SQLAlchemy URL. Also reads JWT, storage, upload limit, and frontend origin settings. |
+| `backend/app/core/database.py` | SQLAlchemy engine, session factory, and request database dependency. |
+| `backend/app/core/security.py` | Argon2 hashing, JWT creation/validation, and active-employee lookup. |
+| `backend/pyproject.toml` | Python packages, packaging discovery, pytest, Ruff formatting, and lint rules. |
 
-## 6. Backend: what each important file does
+The runtime account uses only `VERDANT_DB_*`. PostgreSQL administrator credentials are not application settings.
 
-### FastAPI foundation
+## 7. SQLAlchemy model packages
 
-| File | Responsibility | Change it when… |
-|---|---|---|
-| `backend/app/main.py` | Creates FastAPI, configures CORS, mounts every router under `/api`, and exposes `/api/health`. | You add a router, middleware, API-wide behavior, or service metadata. |
-| `backend/app/config.py` | Loads `DATABASE_URL`, JWT settings, storage path, frontend origin, and other settings from `backend/.env`. It also creates the storage root if missing. | You add a backend environment setting or change a default. |
-| `backend/app/db.py` | Creates the SQLAlchemy engine, model base, connection/session factory, and per-request database dependency. | You change database engine or session behavior. |
-| `backend/app/models.py` | SQLAlchemy tables, columns, relationships expressed through foreign keys, enums, indexes, unique rules, and database checks. | Persistent data or a database rule changes. A matching Alembic migration is also required. |
-| `backend/app/schemas.py` | Pydantic request and response shapes used at the API boundary. | An endpoint accepts or returns a new field. |
-| `backend/app/security.py` | Argon2 password hashing, JWT creation/validation, and lookup of the active employee for authenticated requests. | Login tokens, password rules, token duration, or identity integration changes. |
-| `backend/app/permissions.py` | Reusable project-owner, project-member, and document-specific access checks. | Authorization rules or the meaning of access levels changes. |
-| `backend/app/audit.py` | Adds an `AuditLog` row to the current transaction. | The common audit-record format changes. Feature-specific action names remain in their routers. |
-
-### API routers
-
-| File | Main endpoints and behavior |
+| File | Tables |
 |---|---|
-| `backend/app/routers/auth.py` | Employee ID/password login, current employee lookup, and active employee listing. |
-| `backend/app/routers/projects.py` | Accessible project list, project creation, lifecycle template list, project dashboard, members, project-specific stages, required documents, assignments, and document-specific permissions. |
-| `backend/app/routers/documents.py` | Project-document version upload, submission, review start/decision, version history, authenticated inline viewing, and recoverable requirement archiving. |
-| `backend/app/routers/research.py` | Nested classifications, research listing/upload/versioning, authenticated viewing, project linking, administrator endorsement, and recoverable archiving. |
-| `backend/app/routers/search.py` | Metadata search across accessible project documents and all active research documents, plus global or project-filtered audit retrieval. |
-| `backend/app/routers/__init__.py` | Marks the router directory as a Python package. |
+| `models/common.py` | Declarative base, constraint naming convention, shared creation timestamp. |
+| `models/enums.py` | Access level, requirement status, and review decision values. |
+| `models/employee.py` | `employees`; employee code, username, password hash, organization fields, JSONB profile data, admin/active flags. |
+| `models/project.py` | Lifecycle templates/stages, projects, project members, project-specific stages. |
+| `models/document.py` | Document types/dependencies, requirements, document permissions, logical documents, versions, and version-specific reviews. |
+| `models/research.py` | Nested research categories, documents, versions, endorsements, and project links. |
+| `models/audit.py` | Audit records with direct project scope. |
+| `models/__init__.py` | Stable exports used by routers, services, Alembic, scripts, and tests. |
 
-The router files currently contain both HTTP handling and most business logic. There is no separate service layer yet. For a larger second version, extracting business operations into `services/` would make the routers shorter and easier to test.
+Persistent field changes require both a model change and a new Alembic migration.
 
-### Backend support files
+## 8. Pydantic schema packages
+
+Schemas are API contracts, not database tables:
+
+- `schemas/auth.py` — login, employee output, token output.
+- `schemas/project.py` — projects, membership, stages, assignments, requirements, document permissions.
+- `schemas/document.py` — review decisions.
+- `schemas/research.py` — categories, project links, endorsements.
+- `schemas/search.py` — search results.
+- `schemas/common.py` — reusable base/message structures.
+- `schemas/__init__.py` — stable imports for routers.
+
+When a request or response gains a field, update its schema even if the database already has the column.
+
+## 9. Services and routers
+
+### Services
 
 | File | Responsibility |
 |---|---|
-| `backend/pyproject.toml` | Required Python version, backend dependencies, test dependencies, packaging, and pytest settings. |
-| `backend/.env.example` | Safe template for local backend configuration. Copy it to `backend/.env`; never commit the real secret file. |
-| `backend/seed.py` | Creates demo employees, lifecycle template, Project X, permissions, sample PDFs, review history, research, endorsement, and an initial audit event. |
-| `backend/tests/test_security.py` | Confirms passwords are hashed and can be verified correctly. |
-| `backend/tests/test_seed_pdf.py` | Confirms the tiny PDF generator used by the demo seed creates a valid PDF container. |
-| `backend/storage/.gitkeep` | Keeps the otherwise empty default storage directory in Git. Uploaded files in this folder are ignored. |
+| `services/auth_service.py` | Finds an active employee by employee code or username and verifies the hash. |
+| `services/permission_service.py` | Owner, project-member, responsible employee, reviewer, and document-specific checks. |
+| `services/project_service.py` | Shared assignment validation and employee serialization. |
+| `services/storage_service.py` | Streams uploads, enforces `MAX_UPLOAD_SIZE_MB`, calculates SHA-256, publishes atomically, and removes files after failed DB transactions. |
+| `services/audit_service.py` | Adds an audit record to the caller’s transaction. |
 
-## 7. Database model in plain language
+### Routers
 
-### People, projects, and access
+| File | Responsibility |
+|---|---|
+| `routers/auth.py` | Login, current employee, employee selection list. |
+| `routers/projects.py` | Projects, templates, dashboard, members, stages, requirements, assignments, permissions, and document-only shares. |
+| `routers/documents.py` | Version upload, submission, review start/decision, history, viewing, and requirement archive. |
+| `routers/research.py` | Categories, research upload/versioning/viewing, linking, endorsement, and archive. |
+| `routers/search.py` | PostgreSQL metadata search and project/global audit retrieval. |
 
-- `employees` is the login identity and employee directory. Passwords are stored as hashes, never plain text.
-- `projects` stores the document container and its owner.
-- `project_members` grants an employee access across a project at `VIEW`, `EDIT`, `REVIEW`, or `MANAGE` level.
-- `document_permissions` grants an employee access to one required document. This is intended for document-only access such as a visitor.
-- Administrators and the project owner bypass ordinary project/document checks.
+Routers own HTTP behavior. Reusable business rules, storage, permissions, authentication, and auditing belong in services.
 
-### Project lifecycle and controlled documents
+## 10. PostgreSQL data model in plain language
 
-- `lifecycle_templates` and `lifecycle_template_stages` hold a reusable company standard.
-- Creating a project copies template stages into `project_stages`, allowing the new project to customize its stages without changing the template.
-- `document_types` names a category such as “Technical drawing.” It is project-specific in the current UI.
-- `document_requirements` is the checklist slot: what the project needs, in which stage, with which responsible employee, reviewer, due date, and status.
-- `documents` represents the document belonging to that slot. One requirement can have at most one document.
-- `document_versions` contains immutable version metadata and the path to each stored file.
-- `document_reviews` ties one reviewer decision and comment to one exact version.
-- `document_type_dependencies` exists in the database model for future dependency rules, but the current API and UI do not yet manage or enforce it.
+### Employees and access
 
-### Research library
+- `employees` is the authoritative Verdant identity table.
+- `employee_code` and optional `username` can be used to sign in.
+- Passwords are Argon2 hashes; plain text is never stored.
+- `profile_data` is PostgreSQL JSONB for migrated company-specific fields. Fields used for authorization, filtering, or joining should become normal migrated columns.
+- `is_active=false` blocks login while preserving historical ownership, uploads, reviews, and audit references.
+- `project_members` grants whole-project access.
+- `document_permissions` grants access to one required document.
 
-- `research_categories` is a self-referencing tree. `parent_id` creates sub-classifications.
-- `research_documents` stores a research record.
-- `research_document_versions` stores each uploaded version and file path.
-- `research_endorsements` is a trust signal from an administrator; it does not control workflow or access.
-- `project_research_links` connects research to a project without turning it into a controlled project requirement.
+### Project documentation
 
-### Traceability
+- A template is copied into project stages when a project is created.
+- A requirement is the expected document slot in a stage.
+- One logical document belongs to that requirement.
+- Each upload creates a new immutable version row and stored file.
+- A review belongs to one exact version.
+- Responsible employee and reviewer must be different.
 
-- `audit_logs` records the employee, action name, entity type/id, optional details, and time.
-- File-version records store a SHA-256 checksum so later integrity checks can detect changed bytes.
-- Archive timestamps preserve records instead of immediately deleting them.
+### Research
 
-## 8. Permissions as currently enforced
+- Categories form a tree through `parent_id`.
+- Research documents have immutable versions.
+- Endorsements are trust signals, not workflow approval.
+- A project link references research without converting it to a controlled requirement.
 
-| Actor/access | Project visibility | Project document actions | Project administration | Research |
+### Audit and files
+
+- Audit rows identify the actor, project, action, entity, structured details, and time.
+- Version rows store file path, MIME type, size, original name, and SHA-256.
+- Archive timestamps preserve recoverable records.
+
+## 11. Permissions
+
+| Actor | Project access | Document work | Management | Research |
 |---|---|---|---|---|
-| Administrator | All active projects | All document actions and reviews | Allowed | View/upload; can endorse |
-| Project owner | Owned project | All document actions | Members, stages, requirements, assignments, document permissions | Same as employee; can link visible research to owned project |
-| `MANAGE` member | Project visible | View/upload/submit through allowed access checks | Does not receive owner-only controls | Same as employee |
-| `EDIT` member or responsible employee | Project visible | View, upload a new version, submit latest version | No | Same as employee |
-| `REVIEW` member or assigned reviewer | Project visible | View; assigned reviewer can start/decide their review | No | Same as employee |
-| `VIEW` member | Project visible | View | No | Same as employee |
-| Document-specific permission | Direct access to that requirement according to its level | Limited to that requirement | No | Same as employee |
+| Administrator | All active projects | All document/review actions | All owner actions | View/upload/endorse/archive |
+| Project owner | Owned project | Full access | Members, stages, requirements, assignments, document permissions | Normal research access and project links |
+| `MANAGE` member | Project visible | View/upload/submit where allowed | Not owner-only administration | Normal research access |
+| `EDIT` member or responsible employee | Project visible | View, upload, submit latest version | No | Normal research access |
+| `REVIEW` member or assigned reviewer | Project visible | View; assigned reviewer decides review | No | Normal research access |
+| `VIEW` member | Project visible | View | No | Normal research access |
+| Document-specific share | Listed by `/projects/shared-documents` | Only that requirement at granted level | No | Normal research access |
 
-The project owner is the only ordinary employee allowed to manage project membership, stages, requirements, assignments, and document permissions. The `is_admin` flag acts as the senior/system administrator role.
+Frontend button visibility is only usability. The backend permission service and router-specific reviewer/owner checks are the authority.
 
-## 9. Controlled document workflow
+## 12. Controlled document state flow
 
 ```mermaid
 stateDiagram-v2
     [*] --> MISSING: Requirement created
     MISSING --> DRAFT: First version uploaded
-    CHANGES_REQUESTED --> DRAFT: New version uploaded
+    APPROVED --> DRAFT: Optional later version uploaded
+    CHANGES_REQUESTED --> DRAFT: Corrected version uploaded
     DRAFT --> SUBMITTED: Latest version submitted
-    SUBMITTED --> UNDER_REVIEW: Reviewer starts review
-    UNDER_REVIEW --> CHANGES_REQUESTED: Reviewer requests changes
-    UNDER_REVIEW --> APPROVED: Reviewer approves
+    SUBMITTED --> UNDER_REVIEW: Reviewer starts
+    UNDER_REVIEW --> CHANGES_REQUESTED: Changes requested
+    UNDER_REVIEW --> APPROVED: Approved
 ```
 
-Important details:
+Rules enforced by FastAPI:
 
-- The responsible employee and reviewer must be different. This is checked in the API and with a MySQL check constraint.
-- The assigned people must be project members, except the project owner who is inherently allowed.
+- An assigned reviewer is required before submission.
 - Only the newest version can be submitted.
-- Submission requires an assigned reviewer and creates the version-specific review record.
-- A new version after changes were requested returns the requirement to `DRAFT`.
-- The UI currently starts the review immediately before saving the reviewer’s decision; it does not expose “start review” as a separate user step.
-- “New version submitted” is a business description, not a separate stored status. The stored transitions are `CHANGES_REQUESTED → DRAFT → SUBMITTED`.
+- Submission is allowed only from draft/change-request context.
+- Only the assigned reviewer or administrator can start/decide a review.
+- A decision requires an under-review document.
+- The responsible employee and reviewer cannot be the same person.
 
-## 10. Authentication and file viewing
+## 13. Authentication and viewing
 
-1. The login form posts the employee code and password to `/api/auth/login`.
-2. FastAPI verifies the Argon2 hash and returns a signed JWT containing the employee database ID and expiration.
-3. The frontend stores the JWT in browser `localStorage` under `verdant_token`.
-4. `api-client.ts` sends it as `Authorization: Bearer ...` on later API and file requests.
-5. File endpoints repeat the permission check before returning an inline response.
-6. The frontend converts the authenticated file response into a temporary browser object URL and displays it in an `iframe`.
+1. The frontend sends the entered employee code/username and password to `/api/auth/login`.
+2. FastAPI verifies the employee is active and checks the password hash.
+3. FastAPI returns a signed, expiring JWT.
+4. The browser stores it under `verdant_token` and sends it as a bearer token.
+5. File endpoints repeat authorization before returning inline content.
+6. The frontend creates a temporary object URL and displays it in an `iframe`.
 
-The browser determines which formats it can preview. PDF and browser-supported media/text usually display inline; formats such as some office documents may download or fail to render without a later conversion service.
+Browser preview still depends on the file type. PDF normally displays inline; some office formats will require a future server-side conversion/preview service.
 
-## 11. Search and audit behavior
+## 14. Search and future embeddings
 
-Current search is metadata search. It uses SQL `LIKE` against:
+Current search uses PostgreSQL case-insensitive metadata matching (`ILIKE`) against project requirement title/description/type and research name/description/category. Project results are permission-filtered. Research is company-visible to authenticated employees.
 
-- project requirement title and description;
-- project document type name;
-- research document name and description; and
-- research classification name.
+The current baseline does not install pgvector. The future semantic-search implementation should:
 
-Project results are restricted to projects the employee owns or belongs to. Active research results are company-wide for any authenticated employee. File contents, embeddings, semantic/topic matching, and OCR are not implemented yet.
+1. add pgvector through a new Alembic migration;
+2. extract text from immutable document/research versions;
+3. store chunks tied to the version ID and source checksum;
+4. record model name, vector dimensions, chunk order, and processing state;
+5. enqueue extraction/embedding outside the upload request;
+6. apply the same authorization before returning semantic results; and
+7. allow all embeddings to be regenerated.
 
-Most write operations call `write_audit()` before committing. Because the audit row uses the same SQLAlchemy session, the business change and audit row are normally committed together.
-
-## 12. Where to make common changes
+## 15. Where to make common changes
 
 | Desired change | Main files | Also check |
 |---|---|---|
-| Change wording, layout, buttons, or forms | `app/verdant-app.tsx` | `app/globals.css`, `components/ui/` |
-| Change the color theme or global spacing | `app/globals.css` | Tailwind classes in `app/verdant-app.tsx` |
-| Change the API server URL | `.env.local` | `app/api-client.ts`, `backend/.env` CORS origin |
-| Add a field to an existing feature | `backend/app/models.py`, `backend/app/schemas.py`, relevant router, `app/verdant-app.tsx` | New Alembic migration, seed data, tests |
-| Add a new API feature | New or existing file under `backend/app/routers/` | Register a new router in `backend/app/main.py`; add schemas, permission checks, audit, tests, and frontend call |
-| Change project access rules | `backend/app/permissions.py` | Router-specific owner/reviewer checks and UI visibility (`canManage`) |
-| Change login or token behavior | `backend/app/security.py`, `backend/app/routers/auth.py` | `backend/app/config.py`, `app/api-client.ts`, login code in `app/verdant-app.tsx` |
-| Add or change a document status | `backend/app/models.py` | Migration, `routers/documents.py`, schemas, frontend status styling/actions, seed data, tests |
-| Change the review sequence | `backend/app/routers/documents.py` | Model constraints, audit actions, frontend action buttons, tests |
-| Change file-storage location | `backend/.env` | Folder permissions and backup process; no code change is normally needed |
-| Add file size/type validation | `backend/app/routers/documents.py`, `backend/app/routers/research.py` | User-facing errors in `app/api-client.ts`/UI and tests |
-| Change research categories or behavior | `backend/app/routers/research.py` | Research models/schemas, frontend research forms, migrations if persistent shape changes |
-| Improve search | `backend/app/routers/search.py` | Database indexes/migration, result types and search UI |
-| Change demo users or Project X | `backend/seed.py` | Installation guide if credentials change |
-| Change database structure | `backend/app/models.py` | Generate and review an Alembic migration; update schemas, routers, seed, tests, and docs |
+| Change login screen | `frontend/app/features/auth/login-view.tsx` | `routers/auth.py`, auth schema/service if fields change |
+| Change workspace UI | `frontend/app/verdant-app.tsx` | `domain-types.ts`, presentation helpers |
+| Change theme | `frontend/app/globals.css` | Tailwind classes at the feature call site |
+| Add a persistent field | Relevant model and schema package | Router/service, frontend type/form, new migration, seed, tests, docs |
+| Change PostgreSQL host/login | `backend/.env` | No source change normally needed |
+| Add a backend setting | `core/config.py`, `.env.example` | Installation guide |
+| Change permissions | `services/permission_service.py` | Router reviewer/owner checks and frontend button visibility |
+| Change review transitions | `routers/documents.py`, `models/enums.py` | Migration if enum storage changes, UI, tests |
+| Change upload handling | `services/storage_service.py` | Document/research routers, settings, tests |
+| Change search | `routers/search.py` | PostgreSQL indexes/migration, frontend results |
+| Change demo records | `scripts/seed_demo.py` | Installation credentials/table |
+| Import employees | `scripts/import_employees_csv.py` | Migration guide and actual source mapping |
+| Add a router | New router module | Register it in `app/main.py`, add schemas/services/tests/frontend |
 
-### Example: adding one database-backed field
+### Adding a database-backed field
 
-Suppose a requirement needs a new “department” field:
+1. Add the mapped column in the correct `models/*.py` file.
+2. Add input/output fields to the correct `schemas/*.py` file.
+3. Read/write the field in its service/router.
+4. Generate a new Alembic revision and review upgrade/downgrade.
+5. Update frontend domain type, form, request, and display.
+6. Update seed/import mapping when relevant.
+7. Add tests and update documentation.
 
-1. Add the column to `DocumentRequirement` in `backend/app/models.py`.
-2. Add it to the relevant Pydantic request/response shapes in `backend/app/schemas.py`.
-3. Read/write it in `backend/app/routers/projects.py`.
-4. Generate and review a new Alembic migration; never edit the already-applied initial migration for a deployed database.
-5. Add the frontend type, form input, request value, and display in `app/verdant-app.tsx`.
-6. Update `backend/seed.py` if demo data should contain the field.
-7. Add tests and run the verification commands.
+Do not edit the applied baseline migration after an installation is using it.
 
-This end-to-end checklist prevents a common error where the UI knows about a field but the API or database does not, or vice versa.
+## 16. Alembic
 
-## 13. Database migration workflow
+- `backend/alembic.ini` — migration configuration/logging.
+- `backend/alembic/env.py` — loads PostgreSQL URL and model metadata.
+- `backend/alembic/versions/0001_postgresql_baseline.py` — first PostgreSQL product schema.
+- `backend/alembic/script.py.mako` — template for future revisions.
 
-After changing `backend/app/models.py`:
+Create a revision from `backend`:
 
 ```powershell
-Set-Location backend
 .\.venv\Scripts\alembic.exe revision --autogenerate -m "describe the change"
-```
-
-Open the newly created file under `backend/alembic/versions/` and review both `upgrade()` and `downgrade()`. Autogeneration is a starting point, not automatic approval.
-
-Then apply and verify it:
-
-```powershell
 .\.venv\Scripts\alembic.exe upgrade head
 .\.venv\Scripts\alembic.exe check
 ```
 
-For any database containing important information, back up MySQL and the document-storage folder first. Do not rewrite an old migration that other installations may already have applied; create a new migration.
+Autogeneration is not approval. Read every generated upgrade and downgrade.
 
-### Migration files
+## 17. Scripts and tests
 
-- `backend/alembic.ini` configures Alembic paths and logging.
-- `backend/alembic/env.py` loads the application `DATABASE_URL` and SQLAlchemy metadata.
-- `backend/alembic/versions/1d68f13761f0_initial_document_hub_schema.py` creates the first complete schema.
-- `backend/alembic/script.py.mako` is the template used for new revision files.
+- `scripts/seed_demo.py` creates an isolated product demonstration.
+- `scripts/import_employees_csv.py` validates/imports the existing MySQL Verdant employee export.
+- `tests/test_security.py` checks password hashing.
+- `tests/test_seed_pdf.py` checks demonstration PDF creation.
+- `tests/test_config.py` checks safe PostgreSQL URL construction.
+- `tests/test_models.py` checks required product tables and PostgreSQL employee/audit fields.
 
-## 14. API route map
+Run backend checks:
 
-All routes except `/api/health` require a bearer token unless stated otherwise.
+```powershell
+.\.venv\Scripts\ruff.exe format --check app scripts tests alembic
+.\.venv\Scripts\ruff.exe check app scripts tests alembic
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\alembic.exe upgrade head --sql
+```
 
-| Method and route | Purpose |
-|---|---|
-| `GET /api/health` | Basic service check; no login required. |
-| `POST /api/auth/login` | Verify employee credentials and return a JWT. |
-| `GET /api/auth/me` | Return the signed-in employee. |
-| `GET /api/auth/employees` | List active employees for assignment forms. |
-| `GET /api/projects` | List projects visible to the employee. |
-| `POST /api/projects` | Create a project owned by the signed-in employee. |
-| `GET /api/projects/templates` | List reusable lifecycle templates and stages. |
-| `GET /api/projects/{id}/dashboard` | Return the project, stages, members, requirements, latest versions, reviews, and progress. |
-| `POST /api/projects/{id}/members` | Add/update a project member; owner/admin only. |
-| `POST /api/projects/{id}/stages` | Add a project-specific stage; owner/admin only. |
-| `POST /api/projects/{id}/requirements` | Add a required document slot; owner/admin only. |
-| `PATCH /api/projects/requirements/{id}/assign` | Change responsible employee/reviewer; owner/admin only. |
-| `PUT /api/projects/requirements/{id}/permissions` | Add/update document-specific access; owner/admin only. |
-| `POST /api/documents/requirements/{id}/versions` | Upload a new project-document version. |
-| `POST /api/documents/versions/{id}/submit` | Submit the newest version for review. |
-| `POST /api/documents/reviews/{id}/start` | Move an assigned review to under review. |
-| `POST /api/documents/reviews/{id}/decision` | Approve or request changes with a comment. |
-| `GET /api/documents/{id}/versions` | Return version history. |
-| `GET /api/documents/files/project/{version_id}` | Return an authorized project file inline. |
-| `DELETE /api/documents/requirements/{id}` | Soft-archive a required document; owner/admin only. |
-| `GET/POST /api/research/categories` | List or create research classifications. |
-| `GET/POST /api/research` | List or upload research documents. |
-| `POST /api/research/{id}/versions` | Upload another research version. |
-| `GET /api/research/files/{version_id}` | Return an authenticated research file inline. |
-| `POST /api/research/{id}/links` | Link research to a project the employee can access. |
-| `POST /api/research/{id}/endorse` | Add/update an administrator endorsement. |
-| `DELETE /api/research/{id}` | Soft-archive research; uploader/admin only. |
-| `GET /api/search?q=...` | Search accessible project metadata and active research metadata. |
-| `GET /api/audit` | Global audit for administrators. |
-| `GET /api/audit?project_id=...` | Audit rows associated with an accessible project. |
-
-The live, interactive version of this table is available at `http://localhost:8000/api/docs` while FastAPI is running.
-
-## 15. Running checks before committing a change
-
-From the repository root:
+Run frontend checks from `frontend`:
 
 ```powershell
 npm run lint
 npm run build
-Set-Location backend
-.\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\alembic.exe check
 ```
 
-`alembic check` requires access to the configured MySQL database. A successful frontend build does not test backend behavior, and the current backend tests cover only password hashing and demo-PDF generation. Add feature tests as the application grows.
+## 18. Product limitations still requiring planned work
 
-## 16. Current prototype limitations to remember
+- Employee creation, deactivation, password reset, and role administration do not yet have product screens.
+- JWT storage uses browser `localStorage`; production security review may choose secure cookies or company SSO.
+- Browser preview is file-format dependent; office conversion is not implemented.
+- Filesystem storage is designed for one shared storage root. Horizontal backend scaling needs shared/object storage and coordinated backups.
+- Email/chat notifications and background jobs are not implemented.
+- Full-content extraction, OCR, chunking, embeddings, and semantic search are not implemented.
+- Research is visible to every authenticated employee; private classifications are not present.
+- The document-only visitor inbox is available; share expiry, revocation history, and a richer share-management screen are planned work.
+- Restore endpoints/screens for archived records are not yet present.
+- Document-type dependencies are modeled but not yet enforced.
+- API integration, authorization matrix, upload, and PostgreSQL migration tests should continue expanding before company-wide deployment.
 
-These are important when planning changes:
-
-- The active frontend is a large single component. Splitting it into feature components is a sensible future refactor, but should be done separately from business-feature changes.
-- The older prototype UI files listed above are inactive and can confuse maintenance.
-- Employees are read from the database, but there is no employee administration UI/API. Demo employees come from `seed.py`; a future company version should integrate the real employee identity source.
-- JWTs are stored in browser `localStorage`. A production security review may prefer secure cookies or company single sign-on.
-- Upload endpoints read the entire file into memory and do not yet enforce a maximum size or allowlist of file types.
-- Files live on one configured filesystem. Multiple backend servers would require shared/object storage and a coordinated backup design.
-- Browser preview is format-dependent; office-format conversion is not implemented.
-- Search covers metadata only and uses simple SQL matching. It does not search inside files or understand topics.
-- There is no email, chat, or push notification service for review assignments yet.
-- Research is visible to every authenticated employee. There are no private research classifications in this version.
-- A document-specific visitor can pass the backend check for a known document, but the current project list is based on ownership/membership; a dedicated shared-document inbox is still needed for a complete visitor experience.
-- Soft-archive endpoints exist, but restore screens/endpoints are not yet implemented.
-- `document_type_dependencies` is reserved in the schema but not yet enforced by the UI or API.
-- The automated test suite is intentionally small and should gain API, permission, workflow, and migration tests before production use.
-
-## 17. Safe change checklist
-
-Before changing code:
-
-1. Pull the current branch and create a feature branch.
-2. Identify the frontend, schema, router, permission, and migration impact using the table above.
-3. Back up real data before any migration or storage change.
+## 19. Safe-change checklist
 
 Before committing:
 
-1. Exercise the feature using at least the owner, responsible employee, reviewer, and visitor roles when access is involved.
-2. Confirm unauthorized employees receive a rejection, not merely a hidden button.
-3. Confirm the relevant audit event is written.
-4. Run lint, build, backend tests, and the Alembic check.
-5. Update this handbook when the architecture, active files, workflows, or change locations move.
+1. Test the affected flow as owner, responsible employee, reviewer, ordinary viewer, and document-only visitor when permissions are involved.
+2. Confirm unauthorized API requests fail even if a button is hidden.
+3. Confirm the correct project-scoped audit row is created.
+4. Verify failed uploads do not leave database rows or orphan `.part` files.
+5. Run backend format, lint, tests, and migration SQL generation.
+6. Run frontend lint and build.
+7. Back up PostgreSQL and document storage before applying a migration to important data.
+8. Update this guide when responsibilities or file locations change.
 
-The key maintenance rule is: **the backend is the authority**. Frontend button visibility improves usability, but FastAPI permission checks and database constraints must enforce the real rules.
+The central maintenance rule is: **FastAPI and PostgreSQL enforce the product; React presents it.**

@@ -1,6 +1,6 @@
 [project]
 name = "verdant-api"
-version = "0.1.0"
+version = "1.0.0"
 description = "FastAPI backend for the Verdant document hub"
 requires-python = ">=3.12"
 dependencies = [
@@ -8,7 +8,7 @@ dependencies = [
   "uvicorn[standard]>=0.35,<1.0",
   "sqlalchemy>=2.0.52,<2.1",
   "alembic>=1.18,<2.0",
-  "pymysql>=1.1,<2.0",
+  "psycopg[binary]>=3.2,<4.0",
   "pydantic-settings>=2.10,<3.0",
   "pwdlib[argon2]>=0.2,<1.0",
   "PyJWT>=2.10,<3.0",
@@ -16,7 +16,7 @@ dependencies = [
   "cryptography>=45,<47"
 ]
 [project.optional-dependencies]
-test = ["pytest>=8.4,<10", "httpx>=0.28,<1"]
+test = ["pytest>=8.4,<10", "httpx>=0.28,<1", "ruff>=0.11,<1"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -25,6 +25,15 @@ pythonpath = ["."]
 requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["app", "app.routers"]
+[tool.setuptools.packages.find]
+include = ["app*", "scripts*"]
 
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"app/routers/*.py" = ["B008"]

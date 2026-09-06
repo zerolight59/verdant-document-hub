@@ -1,80 +1,89 @@
-# Local Windows Installation (No Docker)
+# Local Windows Installation (PostgreSQL, No Docker)
 
-This guide installs Verdant directly on a Windows work laptop using MySQL. Docker is not required.
+This guide installs Verdant directly on a Windows laptop using PostgreSQL. Docker is not required and no Docker files are used.
 
-The commands use PowerShell. Replace `C:\Work` if your company uses another folder.
+The examples use PowerShell and `C:\Work\verdant-document-hub`. Replace that path when your company uses another approved location.
 
-## 1. Install the prerequisites
+## 1. Required software
 
 Install or ask IT to install:
 
 - Git for Windows
 - Python 3.12 or newer
-- Node.js 22.13 or newer (Node.js 22 LTS is recommended)
-- MySQL Server 8.x and MySQL Workbench or the MySQL command-line client
+- Node.js 22.13 or newer; Node.js 22 LTS is recommended
+- PostgreSQL 16 or newer
+- pgAdmin 4 or the PostgreSQL `psql` command-line client
 
-Confirm them in PowerShell:
+Confirm the development tools in PowerShell:
 
 ```powershell
 git --version
 python --version
 node --version
 npm --version
-mysql --version
+psql --version
 ```
 
-If `python` is not recognized but the Python launcher is installed, use `py -3.12` instead of `python` when creating the virtual environment.
+`psql` may not be on `PATH` even when PostgreSQL and pgAdmin are installed. You can perform the database steps in pgAdmin instead. If `python` is unavailable but the Python launcher exists, use `py -3.12` in the virtual-environment command.
 
-Use a dedicated prototype database. Do not point the prototype or its demo-data script at a production company database.
-
-## 2. Download Verdant
+## 2. Download the product branch
 
 ```powershell
 New-Item -ItemType Directory -Force C:\Work
 Set-Location C:\Work
 git clone https://github.com/zerolight59/verdant-document-hub.git
 Set-Location verdant-document-hub
+git switch product-architecture-postgresql
 ```
 
-The repository is private, so Git may open a browser and ask you to sign in. Your GitHub account must have repository access. GitHub Desktop can also clone it.
+The repository is private. Git may open a browser for GitHub sign-in, and your GitHub account must have access. After this branch is merged into the default branch, the final `git switch` command will no longer be necessary.
 
-## 3. Create the MySQL database
+## 3. Create the PostgreSQL role and database
 
-Check that the MySQL Windows service is running:
+The PostgreSQL Windows service must be running. You can inspect it with:
 
 ```powershell
-Get-Service MySQL*
+Get-Service postgresql*
 ```
 
-Open MySQL Workbench, connect as an administrator, and run:
+Open pgAdmin, connect to the PostgreSQL server with an administrator account, and open the Query Tool for the default `postgres` database.
+
+Create a dedicated Verdant login role:
 
 ```sql
-CREATE DATABASE IF NOT EXISTS verdant_app
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-CREATE USER IF NOT EXISTS 'verdant_app_user'@'localhost'
-  IDENTIFIED BY 'VerdantLocal_2026';
-
-GRANT ALL PRIVILEGES ON verdant_app.*
-  TO 'verdant_app_user'@'localhost';
-
-FLUSH PRIVILEGES;
+CREATE ROLE verdant_app
+    WITH LOGIN
+    PASSWORD 'replace-with-a-strong-company-password';
 ```
 
-The password is only a local example. Use a company-approved password for a real installation. URL-encode characters such as `@`, `:`, `/`, `?`, or `#` when placing a password in `DATABASE_URL`.
+Create the database in a separate Query Tool execution:
 
-If you cannot create databases or users, ask your database administrator to create `verdant_app` and provide an account with full privileges on it.
+```sql
+CREATE DATABASE verdant
+    WITH OWNER = verdant_app
+    ENCODING = 'UTF8';
+```
 
-## 4. Create document storage
+The PostgreSQL administrator password is used only by you or your database administrator for server administration. Do not put it in Verdant’s `.env`. Verdant uses only the limited `verdant_app` login.
+
+For a company-hosted PostgreSQL server, ask the database administrator for:
+
+- server hostname or IP address;
+- port, normally `5432`;
+- Verdant database name;
+- limited application username and password;
+- required SSL mode; and
+- firewall permission from the application laptop/server.
+
+## 4. Create the document-storage directory
 
 ```powershell
 New-Item -ItemType Directory -Force C:\VerdantData\documents
 ```
 
-The Windows account starting the backend needs read and write access to this folder. A company file-server path can be used later if its permissions allow the backend account to create, read, and update files.
+The Windows account that starts FastAPI must have read and write access. PostgreSQL contains file metadata and history; this directory contains the actual file bytes. Back up both as one system.
 
-## 5. Install and configure FastAPI
+## 5. Configure and install the backend
 
 ```powershell
 Set-Location C:\Work\verdant-document-hub\backend
@@ -84,52 +93,66 @@ python -m venv .venv
 Copy-Item .env.example .env
 ```
 
-Generate a random signing secret:
+Generate the JWT signing secret:
 
 ```powershell
 .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Copy the result. Open `C:\Work\verdant-document-hub\backend\.env` and set:
+Open `C:\Work\verdant-document-hub\backend\.env` and configure it:
 
 ```dotenv
-DATABASE_URL=mysql+pymysql://verdant_app_user:VerdantLocal_2026@localhost:3306/verdant_app?charset=utf8mb4
+APP_NAME=Verdant Document Hub
+ENVIRONMENT=development
+
+VERDANT_DB_HOST=localhost
+VERDANT_DB_PORT=5432
+VERDANT_DB_USER=verdant_app
+VERDANT_DB_PASSWORD=replace-with-a-strong-company-password
+VERDANT_DB_NAME=verdant
+VERDANT_DB_SSLMODE=prefer
+
 JWT_SECRET=paste-the-generated-secret-here
+ACCESS_TOKEN_MINUTES=480
 FRONTEND_ORIGIN=http://localhost:3000
+
 STORAGE_ROOT=C:/VerdantData/documents
+MAX_UPLOAD_SIZE_MB=100
 ```
 
-Use forward slashes in `STORAGE_ROOT`. If MySQL uses another computer or port, replace `localhost:3306` with the value supplied by your database administrator.
+Separate database variables are used intentionally. The application safely constructs the PostgreSQL URL, including passwords containing special characters.
 
-## 6. Create the database tables with Alembic
+Use `VERDANT_DB_SSLMODE=require` when the company database requires encrypted connections. Follow the database administrator’s certificate requirements for a production installation.
 
-Keep PowerShell in the `backend` folder and run:
+## 6. Create the PostgreSQL schema
+
+Keep PowerShell in the `backend` directory:
 
 ```powershell
 .\.venv\Scripts\alembic.exe upgrade head
 .\.venv\Scripts\alembic.exe current
 ```
 
-The migration should finish without an error. Alembic records the installed database version and applies future schema changes in order.
+The current revision should be `0001_postgresql`.
 
-## 7. Add prototype demo data
+If you are importing the existing MySQL Verdant employee table, stop here and follow [Moving Verdant Employees from MySQL to PostgreSQL](MYSQL_TO_POSTGRESQL_MIGRATION.md). Do not seed real company data.
 
-For the first demonstration, run:
+## 7. Optional demonstration data
+
+For an empty demonstration installation only:
 
 ```powershell
-.\.venv\Scripts\python.exe seed.py
+.\.venv\Scripts\python.exe -m scripts.seed_demo
 ```
 
-This creates Project X and the following accounts. Every demo account uses password `verdant-demo`.
+The seed creates Project X and these accounts, all with password `verdant-demo`:
 
-| Employee ID | Demonstrates |
-|---|---|
-| `EMP-1042` | Project owner and senior approver |
-| `EMP-1088` | Assigned reviewer |
-| `EMP-1071` | Responsible employee |
-| `VIS-1100` | Document-only visitor |
-
-Seeding is optional after the prototype phase. Never run the demo seed against a real company database.
+| Employee ID | Username | Role shown |
+|---|---|---|
+| `EMP-1042` | `ananya.rao` | Project owner and administrator |
+| `EMP-1088` | `vikram.shah` | Reviewer |
+| `EMP-1071` | `mira.nair` | Responsible employee |
+| `VIS-1100` | `leela.thomas` | Document-only visitor |
 
 ## 8. Start FastAPI
 
@@ -138,36 +161,40 @@ Set-Location C:\Work\verdant-document-hub\backend
 .\.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Leave this window open. Verify the backend:
+Leave this PowerShell window open. Verify:
 
-- API status: `http://localhost:8000/api/health`
-- API documentation: `http://localhost:8000/api/docs`
+- Service status: `http://localhost:8000/api/health`
+- Interactive API documentation: `http://localhost:8000/api/docs`
 
-## 9. Install and start React
+## 9. Configure and start React
 
 Open a second PowerShell window:
 
 ```powershell
-Set-Location C:\Work\verdant-document-hub
+Set-Location C:\Work\verdant-document-hub\frontend
 npm ci
-Set-Content .env.local 'NEXT_PUBLIC_API_URL=http://localhost:8000/api'
+Copy-Item .env.example .env.local
 npm run dev
 ```
 
-Leave this window open, visit `http://localhost:3000`, and sign in with a demo account.
+Leave the window open and visit `http://localhost:3000`.
 
-## 10. Check the prototype
+## 10. Acceptance check
 
-1. Sign in as `EMP-1042` and open Project X.
-2. View its lifecycle stages, required documents, assignments, and permissions.
-3. Upload a version and move it into review.
-4. Sign in as `EMP-1088` to review it, request changes, or approve it.
-5. Upload a research file, search for it, and preview it inside the application.
-6. Open audit history and confirm the actions were recorded.
+1. Sign in using an employee ID or username.
+2. Create or open a project.
+3. Verify lifecycle stages and required documents.
+4. Upload a document version and preview it in the browser.
+5. Submit it as the responsible employee.
+6. Start and decide the review as the assigned reviewer.
+7. Confirm project activity contains the upload, submission, and review actions.
+8. Upload and view a research document.
+9. Confirm an unauthorized employee cannot access another project.
+10. Confirm PostgreSQL records and `C:\VerdantData\documents` files are both present.
 
 ## Start Verdant again later
 
-Start MySQL, then open two PowerShell windows.
+Start PostgreSQL first, then use two PowerShell windows.
 
 Backend:
 
@@ -179,62 +206,114 @@ Set-Location C:\Work\verdant-document-hub\backend
 Frontend:
 
 ```powershell
-Set-Location C:\Work\verdant-document-hub
+Set-Location C:\Work\verdant-document-hub\frontend
 npm run dev
 ```
 
 Open `http://localhost:3000`.
 
-## Update the installation
+## Run the frontend in production mode locally
 
-Back up the MySQL database and document-storage folder before updating an important installation. Then run:
+Build after every frontend code change:
+
+```powershell
+Set-Location C:\Work\verdant-document-hub\frontend
+npm ci
+npm run build
+npm run start
+```
+
+Run FastAPI without `--reload` for a stable product process. A company-wide deployment also needs approved process supervision, HTTPS, network/firewall configuration, monitoring, and backups.
+
+## Update an installation
+
+Back up PostgreSQL and the document-storage directory first. Then:
 
 ```powershell
 Set-Location C:\Work\verdant-document-hub
 git pull
-npm ci
+
 Set-Location backend
 .\.venv\Scripts\python.exe -m pip install -e ".[test]"
 .\.venv\Scripts\alembic.exe upgrade head
+
+Set-Location ..\frontend
+npm ci
+npm run build
 ```
 
-Restart the backend and frontend afterward.
+Restart both services after updating.
+
+## Quality checks
+
+Backend:
+
+```powershell
+Set-Location C:\Work\verdant-document-hub\backend
+.\.venv\Scripts\ruff.exe format --check app scripts tests alembic
+.\.venv\Scripts\ruff.exe check app scripts tests alembic
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\alembic.exe check
+```
+
+Frontend:
+
+```powershell
+Set-Location C:\Work\verdant-document-hub\frontend
+npm run lint
+npm run build
+```
+
+`alembic check` connects to the configured PostgreSQL database. Run it against a development database rather than production during ordinary development.
 
 ## Common problems
 
 ### `python` is not recognized
 
-Install Python with **Add Python to PATH** enabled, or create the environment with `py -3.12 -m venv .venv`.
-
-### MySQL connection refused
-
-Confirm the MySQL service is running, its port is correct, and `DATABASE_URL` points to the right host. The normal local port is `3306`.
-
-### MySQL access denied
-
-Check the username and password in `backend\.env`. Confirm the user has privileges on `verdant_app` and its allowed host matches the connection host.
-
-### The frontend cannot reach FastAPI
-
-Keep both windows running. Confirm `FRONTEND_ORIGIN=http://localhost:3000` and `.env.local` contains `NEXT_PUBLIC_API_URL=http://localhost:8000/api`. Restart both applications after changing an environment file.
-
-### Port 3000 or 8000 is already in use
+Install Python with **Add Python to PATH** selected, or use:
 
 ```powershell
-Get-NetTCPConnection -LocalPort 3000
-Get-NetTCPConnection -LocalPort 8000
+py -3.12 -m venv .venv
 ```
 
-Stop the conflicting program, or use another port and update the matching URLs in both environment files.
+### `psql` is not recognized
+
+Use pgAdmin, or add the PostgreSQL `bin` directory to your user `PATH`. A normal location resembles `C:\Program Files\PostgreSQL\16\bin`.
+
+### Connection refused
+
+Confirm the PostgreSQL service is running, the hostname and port are correct, and company firewall rules allow the connection.
+
+### Password authentication failed
+
+Check `VERDANT_DB_USER` and `VERDANT_DB_PASSWORD`. Verify the PostgreSQL role can connect to the selected database. Do not substitute the server administrator password.
+
+### `no pg_hba.conf entry`
+
+The PostgreSQL server does not allow the laptop’s address or selected authentication method. Ask the database administrator to add an approved rule; do not weaken authentication globally.
+
+### Alembic reports that a table already exists
+
+Do not delete tables blindly. Confirm whether the database is empty, whether it came from MySQL, and whether an Alembic version record exists. Back up the database before repairing migration state.
+
+### Frontend cannot reach FastAPI
+
+Confirm both windows are running. `backend/.env` must contain `FRONTEND_ORIGIN=http://localhost:3000`, while `frontend/.env.local` must contain `NEXT_PUBLIC_API_URL=http://localhost:8000/api`. Restart both services after changing environment files.
+
+### File upload is rejected as too large
+
+Increase `MAX_UPLOAD_SIZE_MB` only after checking server memory, storage capacity, reverse-proxy limits, and company policy.
 
 ### Files upload but cannot be viewed
 
-Confirm `STORAGE_ROOT` exists and that the Windows account running FastAPI has read and write permission for it.
+Confirm `STORAGE_ROOT` exists and that the Windows account running FastAPI has read and write permission.
 
-### Installation downloads fail on a managed laptop
+### Package installation fails on a managed laptop
 
-A corporate proxy, certificate, or software policy may block Python or npm downloads. Ask IT to configure the approved proxy/certificate or provide the packages internally. Do not disable TLS certificate checks.
+A corporate proxy, certificate, or package policy may block Python or npm downloads. Ask IT for the approved proxy/certificate or internal package source. Do not disable TLS certificate verification.
 
-## Local-demo security boundary
+## Network deployment boundary
 
-Binding FastAPI to `127.0.0.1` limits the prototype to that laptop. Before sharing it over the company network, add an approved HTTPS reverse proxy, production process supervision, firewall rules, backups, secrets management, and a company security review.
+Binding FastAPI to `127.0.0.1` limits it to the laptop. Before allowing other employees to connect, use an approved HTTPS reverse proxy, a production process manager/service account, firewall rules, database TLS, secrets management, centralized logs, monitoring, database backups, document-storage backups, restore testing, and a company security review.
+
+PostgreSQL makes a later pgvector migration possible, but pgvector is not required for this version. Add it only with the embedding/chunking feature and a reviewed Alembic migration.

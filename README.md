@@ -1,98 +1,107 @@
 # Verdant Document Hub
 
-Verdant is a working first version of an internal company documentation system. It combines controlled project documents with an open research library, while keeping project planning outside the product boundary.
+Verdant is an internal company document-management product. It combines controlled project documentation with an open research library while keeping project planning outside the product boundary.
 
-## What works
+## Product capabilities
 
-- Employee ID/password login backed by the `employees` table; passwords are Argon2-hashed.
-- Project creation from reusable lifecycle templates, plus project-specific stages.
+- Verdant-owned employee ID/username and password authentication with Argon2 hashes.
+- Reusable lifecycle templates plus project-specific stages.
 - Project membership with view, edit, review, and manage access.
-- Document-specific permissions, including visitor access without exposing the whole project.
+- Document-specific sharing for visitors without exposing a complete project.
 - One responsible employee and one different reviewer per required document.
-- Versioned file uploads and the workflow `Draft → Submitted → Under review → Changes requested → New version → Approved`.
-- Reviewer comments, recoverable archive operations, and audit logging.
-- Open research classifications, nested sub-classifications, uploads, versioning, project links, and senior endorsement badges.
-- Authenticated in-browser PDF/file viewing.
-- Fast metadata search across accessible project documents and the company research library.
-- SQLAlchemy 2 models and Alembic migrations for MySQL-compatible databases. No SQLite path is included.
+- Immutable file versions and the workflow `Draft → Submitted → Under review → Changes requested → New version → Approved`.
+- Reviewer comments, project-scoped audit history, recoverable archives, and SHA-256 file checksums.
+- Nested research classifications, research versioning, project links, and administrator endorsement badges.
+- Authenticated in-browser file viewing and metadata search.
+- Streamed uploads with a configurable size limit and failed-transaction cleanup.
 
 ## Technology
 
-- Frontend: React 19, TypeScript, Vinext/Vite, Tailwind and shadcn components
-- Backend: FastAPI, SQLAlchemy 2, Alembic, PyMySQL
-- Database: MySQL 8.4 in Docker, or an existing MySQL server
-- Authentication: signed JWT access tokens and Argon2 password hashes
-- File storage: filesystem paths configured by `STORAGE_ROOT`; database rows store metadata, hashes, versions, and audit information
+- Frontend: React 19, TypeScript, Vinext/Vite, Tailwind, and shadcn/Base UI
+- Backend: FastAPI, SQLAlchemy 2, Alembic, and Pydantic
+- Database: PostgreSQL through psycopg
+- Authentication: JWT access tokens and Argon2 password hashes
+- File storage: a configured filesystem root; PostgreSQL stores metadata, paths, versions, and integrity hashes
 
-## Fastest start: Docker
+Docker is not required and Docker configuration is not included on this branch.
 
-Docker Desktop must be running.
+## Install on Windows
 
-```powershell
-Copy-Item .env.example .env
-docker compose up --build
-```
+Follow the [complete Docker-free Windows installation guide](docs/LOCAL_INSTALLATION_WINDOWS.md). It covers PostgreSQL, Python, Node.js, environment configuration, Alembic, optional demo data, startup, updates, and troubleshooting.
 
-Open `http://localhost:3000`. The API documentation is at `http://localhost:8000/api/docs`. The Docker MySQL service is exposed on host port `3307`, avoiding a typical existing MySQL service on `3306`.
+Demo accounts created by the optional seed all use password `verdant-demo`:
 
-Demo accounts all use password `verdant-demo`:
-
-| Employee ID | Name | Demonstrates |
+| Employee ID | Username | Demonstrates |
 |---|---|---|
-| `EMP-1042` | Ananya Rao | Project owner / senior approver |
-| `EMP-1088` | Vikram Shah | Assigned reviewer |
-| `EMP-1071` | Mira Nair | Responsible design employee |
-| `VIS-1100` | Leela Thomas | Document-only visitor |
+| `EMP-1042` | `ananya.rao` | Project owner and administrator |
+| `EMP-1088` | `vikram.shah` | Assigned reviewer |
+| `EMP-1071` | `mira.nair` | Responsible employee |
+| `VIS-1100` | `leela.thomas` | Document-only visitor |
 
-## Install on Windows without Docker
+Do not seed a database that contains real company data.
 
-For a work laptop with an existing MySQL server, follow the dedicated [step-by-step local Windows installation guide](docs/LOCAL_INSTALLATION_WINDOWS.md). It covers prerequisites, MySQL setup, backend and frontend installation, migrations, demo data, startup, updates, and common errors.
+## Repository structure
 
-## Understand and change the application
-
-The [codebase and application guide](docs/CODEBASE_GUIDE.md) explains the architecture, important files, data and request flows, permissions, document workflow, API routes, current limitations, and where to make common changes.
-
-## Use an existing MySQL server
-
-Create a dedicated database and application user. Adapt the host, password, and account policy to your environment:
-
-```sql
-CREATE DATABASE verdant_app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'verdant'@'localhost' IDENTIFIED BY 'verdant';
-GRANT ALL PRIVILEGES ON verdant_app.* TO 'verdant'@'localhost';
+```text
+verdant-document-hub/
+├── backend/
+│   ├── alembic/                 PostgreSQL schema migrations
+│   ├── app/
+│   │   ├── core/                Configuration, database, security
+│   │   ├── models/              SQLAlchemy models by domain
+│   │   ├── routers/             FastAPI HTTP endpoints
+│   │   ├── schemas/             Pydantic API contracts by domain
+│   │   ├── services/            Authentication, permissions, storage, audit
+│   │   └── main.py              FastAPI entry point
+│   ├── scripts/                 Demo seed and employee migration utilities
+│   ├── tests/                   Backend quality checks
+│   └── pyproject.toml           Python packages and tool configuration
+├── frontend/
+│   ├── app/                     React application and feature modules
+│   ├── components/              Shared UI primitives
+│   ├── public/                  Static browser assets
+│   └── package.json             Frontend packages and commands
+└── docs/                        Installation, architecture, and migration guides
 ```
 
-Then prepare and start the backend:
+## PostgreSQL configuration
+
+Copy `backend/.env.example` to `backend/.env` and configure separate values:
+
+```dotenv
+VERDANT_DB_HOST=localhost
+VERDANT_DB_PORT=5432
+VERDANT_DB_USER=verdant_app
+VERDANT_DB_PASSWORD=replace-with-a-strong-password
+VERDANT_DB_NAME=verdant
+VERDANT_DB_SSLMODE=prefer
+```
+
+The backend safely constructs the SQLAlchemy connection URL. It does not require a MySQL root password, a PostgreSQL administrator password, or a connection to the Calibration database.
+
+Copy `frontend/.env.example` to `frontend/.env.local` to configure the browser API address.
+
+## Start development services
+
+Backend terminal:
 
 ```powershell
 Set-Location backend
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[test]"
-Copy-Item .env.example .env
-.\.venv\Scripts\alembic.exe upgrade head
-.\.venv\Scripts\python.exe seed.py
-.\.venv\Scripts\uvicorn.exe app.main:app --reload --port 8000
+.\.venv\Scripts\uvicorn.exe app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-In another terminal, start React:
+Frontend terminal:
 
 ```powershell
-Set-Location ..
-npm ci
+Set-Location frontend
 npm run dev
 ```
 
-If your database is not on the development default, edit `backend/.env`:
-
-```dotenv
-DATABASE_URL=mysql+pymysql://user:password@host:3306/database?charset=utf8mb4
-JWT_SECRET=use-a-long-random-production-secret
-STORAGE_ROOT=C:/company/document-storage/verdant
-```
+Open `http://localhost:3000`. FastAPI documentation is at `http://localhost:8000/api/docs`.
 
 ## Database migrations
 
-The checked-in initial migration creates the full schema. For a model change:
+The PostgreSQL baseline is `0001_postgresql`. For a model change:
 
 ```powershell
 Set-Location backend
@@ -101,26 +110,32 @@ Set-Location backend
 .\.venv\Scripts\alembic.exe check
 ```
 
-Review generated migrations before applying them to a shared company database. Back up production data before any destructive migration.
+Review every generated migration before applying it. Back up PostgreSQL and the document-storage directory together before changing an important installation.
 
-## Verification
+## Quality checks
 
 ```powershell
+Set-Location frontend
+npm run lint
 npm run build
-Set-Location backend
+
+Set-Location ..\backend
+.\.venv\Scripts\ruff.exe format --check app scripts tests alembic
+.\.venv\Scripts\ruff.exe check app scripts tests alembic
 .\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\alembic.exe check
+.\.venv\Scripts\alembic.exe upgrade head --sql
 ```
 
-The prototype has also been exercised against a live MySQL-compatible server through login, project dashboard reads, version upload, submission, reviewer start/approval, research listing, search, audit recording, and document-only visitor viewing.
+The final Alembic check generates PostgreSQL SQL without changing a database. `alembic check` should additionally be run against the configured PostgreSQL development database.
 
-## Repository publishing
+## Documentation
 
-This folder is already a Git repository. After choosing GitHub or GitLab and creating an empty remote repository, add that remote and push:
+- [Codebase and application guide](docs/CODEBASE_GUIDE.md)
+- [Docker-free Windows installation](docs/LOCAL_INSTALLATION_WINDOWS.md)
+- [MySQL employee-table to PostgreSQL migration](docs/MYSQL_TO_POSTGRESQL_MIGRATION.md)
+- [Database design review](docs/schema-notes.md)
+- [Original database diagram](docs/original-database-diagram.svg)
 
-```powershell
-git remote add origin <your-repository-url>
-git push -u origin main
-```
+## PostgreSQL and future embeddings
 
-No remote is created or published automatically, so company code is not sent to an external service without an explicit decision.
+PostgreSQL is now the single product database. The current baseline does not require pgvector because embeddings and chunking are not implemented yet. When that feature is built, it should be introduced through a new Alembic migration with chunks tied to immutable document-version IDs. Embeddings remain derived, regeneratable data rather than the document source of truth.

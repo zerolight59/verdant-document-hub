@@ -48,6 +48,10 @@ Demo accounts all use password `verdant-demo`:
 
 For a work laptop with an existing MySQL server, follow the dedicated [step-by-step local Windows installation guide](docs/LOCAL_INSTALLATION_WINDOWS.md). It covers prerequisites, MySQL setup, backend and frontend installation, migrations, demo data, startup, updates, and common errors.
 
+## Understand and change the application
+
+The [codebase and application guide](docs/CODEBASE_GUIDE.md) explains the architecture, important files, data and request flows, permissions, document workflow, API routes, current limitations, and where to make common changes.
+
 ## Use an existing MySQL server
 
 Create a dedicated database and application user. Adapt the host, password, and account policy to your environment:

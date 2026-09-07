@@ -1,0 +1,11 @@
+.git
+.next
+.vinext
+.wrangler
+dist
+node_modules
+backend/.venv
+backend/**/__pycache__
+backend/storage
+.env
+*.log

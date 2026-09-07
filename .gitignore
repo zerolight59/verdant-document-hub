@@ -36,3 +36,14 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# keep configuration templates, ignore local/runtime backend data
+!.env.example
+!backend/.env.example
+/backend/.venv/
+/backend/**/__pycache__/
+/backend/storage/*
+!/backend/storage/.gitkeep
+
+/backend/*.egg-info/
+

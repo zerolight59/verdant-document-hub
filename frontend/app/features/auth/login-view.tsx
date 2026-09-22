@@ -85,6 +85,7 @@ export function LoginView({ busy, error, onSubmit }: LoginViewProps) {
               </p>
             )}
             <Button
+              type="submit"
               disabled={busy}
               className="mt-6 w-full bg-[#1b5e45] hover:bg-[#144b37]"
             >

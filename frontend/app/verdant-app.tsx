@@ -566,7 +566,7 @@ export default function VerdantApp() {
                       </option>
                     ))}
                   </select>
-                  <Button disabled={busy} className="md:col-span-3">
+                  <Button type="submit" disabled={busy} className="md:col-span-3">
                     Create with lifecycle stages
                   </Button>
                 </form>
@@ -711,7 +711,7 @@ export default function VerdantApp() {
                         <option value="REVIEW">Review</option>
                         <option value="MANAGE">Manage</option>
                       </select>
-                      <Button disabled={busy}>Save member</Button>
+                      <Button type="submit" disabled={busy}>Save member</Button>
                     </form>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {dashboard.members.map((m) => (
@@ -739,7 +739,7 @@ export default function VerdantApp() {
                         defaultValue={(dashboard.stages.length || 0) + 1}
                         required
                       />
-                      <Button disabled={busy}>Add stage</Button>
+                      <Button type="submit" disabled={busy}>Add stage</Button>
                     </form>
                   </FormCard>
                 )}{' '}
@@ -798,7 +798,7 @@ export default function VerdantApp() {
                           </option>
                         ))}
                       </select>
-                      <Button disabled={busy} className="md:col-span-2">
+                      <Button type="submit" disabled={busy} className="md:col-span-2">
                         Create document requirement
                       </Button>
                     </form>
@@ -832,7 +832,7 @@ export default function VerdantApp() {
                         <option value="REVIEW">Review</option>
                         <option value="MANAGE">Manage document</option>
                       </select>
-                      <Button disabled={busy}>Save document access</Button>
+                      <Button type="submit" disabled={busy}>Save document access</Button>
                     </form>
                   </FormCard>
                 )}{' '}
@@ -1038,7 +1038,7 @@ export default function VerdantApp() {
                       </option>
                     ))}
                   </select>
-                  <Button>Create</Button>
+                  <Button type="submit">Create</Button>
                 </form>
               </FormCard>
             )}
@@ -1065,7 +1065,7 @@ export default function VerdantApp() {
                     ))}
                   </select>
                   <Input name="file" type="file" required />
-                  <Button className="md:col-span-2">
+                  <Button type="submit" className="md:col-span-2">
                     Upload to company library
                   </Button>
                 </form>

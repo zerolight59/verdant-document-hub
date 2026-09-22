@@ -27,6 +27,19 @@ Docker is not required and Docker configuration is not included on this branch.
 
 ## Install on Windows
 
+Install Git, Python 3.12+, Node.js 22.13+, and PostgreSQL 16+ first. Start PostgreSQL, then run in PowerShell:
+
+```powershell
+git clone --branch product-architecture-postgresql https://github.com/zerolight59/verdant-document-hub.git
+cd verdant-document-hub
+powershell -ExecutionPolicy Bypass -File .\Install-Verdant.ps1 -DemoData
+powershell -ExecutionPolicy Bypass -File .\Start-Verdant.ps1
+```
+
+Open <http://localhost:3000>. The installer creates a local Python environment, installs dependencies, generates private settings, and applies database migrations. Enter your PostgreSQL administrator password locally when prompted. `-DemoData` adds sample accounts only to an empty employee table; omit it when importing real employees. Repository access is required to clone a private repository.
+
+Use `Stop-Verdant.ps1` to stop the app. The scripts work from any checkout location. See [local setup and restart commands](LOCAL-RUN.md) and the [visual user guide (PDF)](output/pdf/Verdant-User-Guide.pdf).
+
 Follow the [complete Docker-free Windows installation guide](docs/LOCAL_INSTALLATION_WINDOWS.md). It covers PostgreSQL, Python, Node.js, environment configuration, Alembic, optional demo data, startup, updates, and troubleshooting.
 
 Demo accounts created by the optional seed all use password `verdant-demo`:
@@ -101,7 +114,7 @@ Open `http://localhost:3000`. FastAPI documentation is at `http://localhost:8000
 
 ## Database migrations
 
-The PostgreSQL baseline is `0001_postgresql`. For a model change:
+The PostgreSQL baseline is `0001_postgresql`; the current revision is `0002_search_indexes`. For a model change:
 
 ```powershell
 Set-Location backend
@@ -129,6 +142,9 @@ Set-Location ..\backend
 The final Alembic check generates PostgreSQL SQL without changing a database. `alembic check` should additionally be run against the configured PostgreSQL development database.
 
 ## Documentation
+
+- [Visual user guide (PDF)](output/pdf/Verdant-User-Guide.pdf)
+- [Local installation and restart helpers](LOCAL-RUN.md)
 
 - [Codebase and application guide](docs/CODEBASE_GUIDE.md)
 - [Docker-free Windows installation](docs/LOCAL_INSTALLATION_WINDOWS.md)

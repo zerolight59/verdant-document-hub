@@ -6,6 +6,8 @@ The examples use PowerShell and `C:\Work\verdant-document-hub`. Replace that pat
 
 ## 1. Required software
 
+For the guided installation after installing the prerequisites below, clone the `product-architecture-postgresql` branch and run `powershell -ExecutionPolicy Bypass -File .\Install-Verdant.ps1 -DemoData` from the repository root. Then run `Start-Verdant.ps1`. The installer generates unique local settings and a storage directory inside the checkout. Omit `-DemoData` when importing real employees. Use `-SkipDatabase` to prepare dependencies while PostgreSQL is still being installed. The manual steps below remain available for custom installations.
+
 Install or ask IT to install:
 
 - Git for Windows
@@ -133,7 +135,7 @@ Keep PowerShell in the `backend` directory:
 .\.venv\Scripts\alembic.exe current
 ```
 
-The current revision should be `0001_postgresql`.
+The current revision should be `0002_search_indexes`.
 
 If you are importing the existing MySQL Verdant employee table, stop here and follow [Moving Verdant Employees from MySQL to PostgreSQL](MYSQL_TO_POSTGRESQL_MIGRATION.md). Do not seed real company data.
 

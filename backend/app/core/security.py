@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
@@ -15,7 +15,8 @@ from .config import settings
 from .database import get_db
 
 password_hash = PasswordHash.recommended()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_prefix}/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_prefix}/auth/login", auto_error=False)
+SESSION_COOKIE = "verdant_session"
 
 
 def hash_password(password: str) -> str:
@@ -39,15 +40,23 @@ def create_access_token(employee_id: int) -> str:
 
 
 def get_current_employee(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme)],
     db: Annotated[Session, Depends(get_db)],
 ) -> Employee:
+    if not token:
+        token = request.cookies.get(SESSION_COOKIE)
+        if token and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            if request.headers.get("origin") != settings.frontend_origin:
+                raise HTTPException(status_code=403, detail="Untrusted request origin")
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        if not token:
+            raise credentials_error
         payload = jwt.decode(
             token,
             settings.jwt_secret,

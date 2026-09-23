@@ -59,6 +59,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     configured = Settings()
+    if configured.environment != "development":
+        if configured.jwt_secret.startswith(("change-this", "replace-this", "replace-with")):
+            raise ValueError("Set a unique JWT_SECRET before using a non-development environment")
+        if not configured.frontend_origin.startswith("https://"):
+            raise ValueError("Non-development deployments require an HTTPS FRONTEND_ORIGIN")
     configured.storage_root.mkdir(parents=True, exist_ok=True)
     return configured
 

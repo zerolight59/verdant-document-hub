@@ -78,6 +78,9 @@ export type ResearchCategory = {
 };
 
 export type ResearchDocument = {
+  uploaded_by_id?: number;
+  projects: { id: number; name: string }[];
+  related: { id: number; name: string }[];
   id: number;
   name: string;
   description?: string;

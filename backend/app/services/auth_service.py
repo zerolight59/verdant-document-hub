@@ -1,8 +1,10 @@
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.core.security import verify_password
+from app.core.security import hash_password, verify_password
 from app.models import Employee
+
+_DUMMY_HASH = hash_password("unused-account-timing-check")
 
 
 def authenticate_employee(db: Session, identifier: str, password: str) -> Employee | None:
@@ -18,6 +20,7 @@ def authenticate_employee(db: Session, identifier: str, password: str) -> Employ
             ),
         )
     )
-    if not employee or not verify_password(password, employee.password_hash):
+    valid = verify_password(password, employee.password_hash if employee else _DUMMY_HASH)
+    if not employee or not valid:
         return None
     return employee

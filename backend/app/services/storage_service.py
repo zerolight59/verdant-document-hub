@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi import HTTPException, UploadFile, status
 
 from app.core.config import settings
+from app.services.preview_service import MIME_TYPES
 
 READ_CHUNK_SIZE = 1024 * 1024
 
@@ -23,7 +24,16 @@ async def store_upload(upload: UploadFile, *folder_parts: str) -> StoredUpload:
     """Stream an upload to a temporary file, enforce its limit, then publish it."""
 
     original_name = Path(upload.filename or "document.bin").name
-    suffix = Path(original_name).suffix[:16]
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in MIME_TYPES:
+        await upload.close()
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "Supported files: PDF, PNG, JPEG, GIF, WebP, TXT, MD, CSV, DOCX, XLSX and PPTX. "
+                "Convert other formats to PDF."
+            ),
+        )
     folder = settings.storage_root.joinpath(*folder_parts)
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -63,7 +73,7 @@ async def store_upload(upload: UploadFile, *folder_parts: str) -> StoredUpload:
     return StoredUpload(
         original_name=original_name,
         path=final_path,
-        mime_type=upload.content_type or "application/octet-stream",
+        mime_type=MIME_TYPES[suffix],
         size=size,
         checksum_sha256=digest.hexdigest(),
     )

@@ -41,6 +41,7 @@ next-env.d.ts
 /outputs/
 /work/
 /.local/
+/tmp/
 
 # keep configuration templates, ignore local/runtime backend data
 !.env.example

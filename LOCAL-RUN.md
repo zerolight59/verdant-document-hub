@@ -31,6 +31,8 @@ Existing environment files, database role passwords, and employee records are pr
 
 Visit <http://localhost:3000>. Sample owner: `EMP-1042` / `verdant-demo`. Other sample accounts are in the full Windows installation guide. FastAPI documentation is at <http://localhost:8000/api/docs>.
 
+For a richer presentation, a fresh `-DemoData` install includes three additional fictional projects and a populated research library. On an existing sample installation, run `powershell -ExecutionPolicy Bypass -File .\Add-DemoData.ps1`. The command adds the pack once without resetting documents or passwords. See the [demo pack](docs/DEMO_SHOWCASE.md) and [visual guide](output/pdf/Verdant-User-Guide.pdf).
+
 The visual walkthrough is `output/pdf/Verdant-User-Guide.pdf`.
 
 ## Start again after restarting Windows

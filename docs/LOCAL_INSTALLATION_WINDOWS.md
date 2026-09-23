@@ -135,7 +135,7 @@ Keep PowerShell in the `backend` directory:
 .\.venv\Scripts\alembic.exe current
 ```
 
-The current revision should be `0002_search_indexes`.
+The current revision should be `0003_research_related_links`.
 
 If you are importing the existing MySQL Verdant employee table, stop here and follow [Moving Verdant Employees from MySQL to PostgreSQL](MYSQL_TO_POSTGRESQL_MIGRATION.md). Do not seed real company data.
 

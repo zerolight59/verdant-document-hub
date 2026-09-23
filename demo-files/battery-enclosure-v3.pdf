@@ -1,0 +1,82 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 7 0 R >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+6 0 obj
+<< /Length 1747 >>
+stream
+0.96 0.98 0.96 rg 0 0 612 792 re f
+0.13 0.36 0.26 rg 0 700 612 92 re f
+1 1 1 rg BT /F1 13 Tf 36 755 Td (VERDANT / FICTIONAL DEMONSTRATION) Tj ET
+1 1 1 rg BT /F1 16 Tf 36 724 Td (Battery enclosure drawing) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 670 Td (DEMO - Atlas EV platform) Tj ET
+0.15 0.23 0.19 rg BT /F1 10 Tf 36 647 Td (Revision 3  |  Page 1 of 2) Tj ET
+0.15 0.23 0.19 rg BT /F1 9 Tf 36 620 Td (NOT FOR ENGINEERING, PROCUREMENT OR SAFETY DECISIONS) Tj ET
+0.15 0.23 0.19 rg BT /F1 16 Tf 36 579 Td (Purpose and document scope) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 550 Td (Corrected fictional flange clearance from 12 mm to 16 mm.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 528 Td (Revision note updated in response to Vikram's sample review feedback.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 506 Td (Fictional design parameter: clearance 16 mm.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 484 Td (Prepared by Mira Nair for the local demonstration walkthrough.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 462 Td (NOT FOR ENGINEERING, PROCUREMENT OR SAFETY DECISIONS.) Tj ET
+0.15 0.23 0.19 rg BT /F1 14 Tf 36 360 Td (Illustrative assembly / workflow map) Tj ET
+0.88 0.93 0.89 rg 40 270 160 62 re f
+0.15 0.23 0.19 rg BT /F1 13 Tf 75 296 Td (Input) Tj ET
+0.88 0.93 0.89 rg 225 270 160 62 re f
+0.15 0.23 0.19 rg BT /F1 13 Tf 260 296 Td (Document) Tj ET
+0.88 0.93 0.89 rg 410 270 160 62 re f
+0.15 0.23 0.19 rg BT /F1 13 Tf 445 296 Td (Decision) Tj ET
+0.35 0.55 0.40 RG 1.5 w 200 301 m 225 301 l S
+385 301 m 410 301 l S
+0.15 0.23 0.19 rg BT /F1 10 Tf 36 227 Td (Example values are invented to demonstrate the document workflow.) Tj ET
+0.15 0.23 0.19 rg BT /F1 9 Tf 36 45 Td (DEMO DATA ONLY  |  Generated locally by Verdant's optional showcase seed) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Length 1545 >>
+stream
+0.96 0.98 0.96 rg 0 0 612 792 re f
+0.13 0.36 0.26 rg 0 700 612 92 re f
+1 1 1 rg BT /F1 13 Tf 36 755 Td (VERDANT / FICTIONAL DEMONSTRATION) Tj ET
+1 1 1 rg BT /F1 16 Tf 36 724 Td (Battery enclosure drawing) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 670 Td (DEMO - Atlas EV platform) Tj ET
+0.15 0.23 0.19 rg BT /F1 10 Tf 36 647 Td (Revision 3  |  Page 2 of 2) Tj ET
+0.15 0.23 0.19 rg BT /F1 9 Tf 36 620 Td (NOT FOR ENGINEERING, PROCUREMENT OR SAFETY DECISIONS) Tj ET
+0.15 0.23 0.19 rg BT /F1 16 Tf 36 579 Td (Revision notes and reader checklist) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 540 Td (Current revision: 3. Previous versions remain available in Verdant.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 508 Td (Confirm the document title and selected version before reviewing.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 476 Td (Read the change summary beside the file reader.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 444 Td (Compare versions side by side when an earlier file exists.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 412 Td (Record written feedback before requesting changes.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 380 Td (Submit a new version after making the requested corrections.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 348 Td (Only the assigned reviewer may approve this project document.) Tj ET
+0.15 0.23 0.19 rg BT /F1 11 Tf 36 316 Td (An approval in this sample is fictional, not engineering certification.) Tj ET
+0.15 0.23 0.19 rg BT /F1 9 Tf 36 45 Td (DEMO DATA ONLY  |  Generated locally by Verdant's optional showcase seed) Tj ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000373 00000 n 
+0000000443 00000 n 
+0000002242 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+3839
+%%EOF

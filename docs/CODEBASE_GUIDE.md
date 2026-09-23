@@ -76,8 +76,8 @@ verdant-document-hub/
 │   └── pyproject.toml
 ├── frontend/
 │   ├── app/
-│   │   ├── features/auth/login-view.tsx
-│   │   ├── api-client.ts
+│   │   ├── features/workspace/common.tsx
+│   │   ├── workspace-api.ts
 │   │   ├── domain-types.ts
 │   │   ├── presentation.ts
 │   │   ├── verdant-app.tsx
@@ -102,7 +102,7 @@ A project-document upload shows the normal pattern:
 sequenceDiagram
     participant User
     participant UI as frontend/app/verdant-app.tsx
-    participant Client as frontend/app/api-client.ts
+    participant Client as frontend/app/workspace-api.ts
     participant Router as routers/documents.py
     participant Permission as services/permission_service.py
     participant Storage as services/storage_service.py
@@ -110,8 +110,8 @@ sequenceDiagram
 
     User->>UI: Select file
     UI->>Client: POST multipart request
-    Client->>Router: Bearer token + file
-    Router->>Permission: Require EDIT or MANAGE
+    Client->>Router: HttpOnly session cookie + file
+    Router->>Permission: Require exact responsible employee
     Router->>Storage: Stream with size limit
     Storage-->>Router: Path, size, MIME type, SHA-256
     Router->>DB: Add version, set DRAFT, add audit row
@@ -125,8 +125,8 @@ sequenceDiagram
 
 Most requests follow this order:
 
-1. A React event handler calls `api()` or `fileBlob()`.
-2. `api-client.ts` adds the JWT bearer token.
+1. A React event handler calls `request()` or `getFile()`.
+2. `workspace-api.ts` includes the HttpOnly session cookie via browser credentials.
 3. A FastAPI router validates the HTTP request.
 4. `core/security.py` loads the active employee.
 5. `permission_service.py` enforces server-side access.
@@ -140,17 +140,21 @@ Most requests follow this order:
 |---|---|---|
 | `frontend/app/page.tsx` | Root route; renders Verdant. | The root page changes. |
 | `frontend/app/layout.tsx` | HTML shell, metadata, fonts, global CSS. | Title, metadata, fonts, or global shell changes. |
-| `frontend/app/verdant-app.tsx` | Authenticated workspace state, API actions, navigation, project/research/audit screens, forms, file viewer. | A main workflow, screen, button, or endpoint call changes. |
-| `frontend/app/features/auth/login-view.tsx` | Employee ID/username login screen. | Login presentation or fields change. |
+| `frontend/app/verdant-app.tsx` | Session, login, personal homepage, search, navigation and workspace refresh. | A main workflow, screen, button, or endpoint call changes. |
+| `frontend/app/features/workspace/common.tsx` | Accessible dialog forms, field helpers and status badges. | Shared form behavior changes. |
+| `frontend/app/features/workspace/project-workspace.tsx` | Project documents, assignments, review actions, version comparison, team, stages and activity. | Project workflow changes. |
+| `frontend/app/features/workspace/research-workspace.tsx` | Classification tree, file list, research versions, references and endorsements. | Research navigation changes. |
+| `frontend/app/features/viewer/document-reader.tsx` | Local PDF.js canvas viewer, images, Office/text content previews. | File viewing changes. |
+| `frontend/app/workspace.css` | Responsive product layout and reading experience. | Workspace appearance changes. |
 | `frontend/app/domain-types.ts` | Frontend representations of API data. | The backend response shape changes. |
 | `frontend/app/presentation.ts` | Status labels and status color mapping. | A status name or visual treatment changes. |
-| `frontend/app/api-client.ts` | API base URL, bearer token, JSON/form requests, errors, authenticated file blobs. | Transport, token header, base URL, or error handling changes. |
+| `frontend/app/workspace-api.ts` | API base URL, credentialed JSON/form requests, session-expiry events and authenticated file blobs. | Transport, base URL, or error handling changes. |
 | `frontend/app/globals.css` | Tailwind imports, design tokens, global theme, login layout. | Product-wide appearance changes. |
 | `frontend/components/ui/*.tsx` | Shared shadcn/Base UI primitives. | A reusable control changes everywhere. Avoid editing for one feature. |
 | `frontend/package.json` | Node requirement, packages, build/lint/start commands. | A frontend dependency or command changes. |
 | `frontend/.env.local` | Local API URL; ignored by Git. | Backend address changes. |
 
-`verdant-app.tsx` is still the largest frontend file. Authentication and domain types are already extracted; future feature work should continue by moving project, research, audit, and file-viewer sections into their own feature components without changing behavior at the same time.
+Project, research and file-viewing behavior live in separate feature modules. The root coordinates session and navigation; do not duplicate permission rules there as a substitute for backend enforcement.
 
 ## 6. Backend foundation
 
@@ -183,7 +187,7 @@ Persistent field changes require both a model change and a new Alembic migration
 
 Schemas are API contracts, not database tables:
 
-- `schemas/auth.py` — login, employee output, token output.
+- `schemas/auth.py` — login and employee output (the old token contract is retained for compatibility but not returned by browser login).
 - `schemas/project.py` — projects, membership, stages, assignments, requirements, document permissions.
 - `schemas/document.py` — review decisions.
 - `schemas/research.py` — categories, project links, endorsements.
@@ -253,15 +257,16 @@ Routers own HTTP behavior. Reusable business rules, storage, permissions, authen
 
 ## 11. Permissions
 
-| Actor | Project access | Document work | Management | Research |
-|---|---|---|---|---|
-| Administrator | All active projects | All document/review actions | All owner actions | View/upload/endorse/archive |
-| Project owner | Owned project | Full access | Members, stages, requirements, assignments, document permissions | Normal research access and project links |
-| `MANAGE` member | Project visible | View/upload/submit where allowed | Not owner-only administration | Normal research access |
-| `EDIT` member or responsible employee | Project visible | View, upload, submit latest version | No | Normal research access |
-| `REVIEW` member or assigned reviewer | Project visible | View; assigned reviewer decides review | No | Normal research access |
-| `VIEW` member | Project visible | View | No | Normal research access |
-| Document-specific share | Listed by `/projects/shared-documents` | Only that requirement at granted level | No | Normal research access |
+| Actor | Project access | Document work | Management |
+|---|---|---|---|
+| Administrator | Only projects they own/belong to or documents shared with them | No task bypass | Research endorsement/archive privileges only; project ownership remains explicit |
+| Project owner | Owned project | View; upload/review only if explicitly assigned | Members, stages, requirements, assignments, sharing and archive |
+| Project member, regardless of access-level label | Joined projects | View; no blanket upload/review authority | None |
+| Responsible employee | Project membership required | Upload a new version and submit the latest draft | None |
+| Assigned reviewer | Project membership required | Start review; approve or request changes on the latest submitted version | None |
+| Document-specific share | Only the shared document | Read only; even an old EDIT-labelled share cannot perform an assignment | None |
+
+Research is company-visible to authenticated users and supports collaborative version upload without a review gate.
 
 Frontend button visibility is only usability. The backend permission service and router-specific reviewer/owner checks are the authority.
 
@@ -283,21 +288,27 @@ Rules enforced by FastAPI:
 
 - An assigned reviewer is required before submission.
 - Only the newest version can be submitted.
-- Submission is allowed only from draft/change-request context.
-- Only the assigned reviewer or administrator can start/decide a review.
+- Submission is allowed only from DRAFT. After changes are requested, upload a new version first.
+- Only the currently assigned reviewer can start/decide the current version's review. Owners and administrators cannot bypass it.
+- Uploads and reassignment are blocked while a review is pending or underway.
+- A changes-request decision must contain written feedback.
+- Historical versions preserve their review comments; selecting an older version hides current review actions.
 - A decision requires an under-review document.
 - The responsible employee and reviewer cannot be the same person.
 
 ## 13. Authentication and viewing
 
-1. The frontend sends the entered employee code/username and password to `/api/auth/login`.
-2. FastAPI verifies the employee is active and checks the password hash.
-3. FastAPI returns a signed, expiring JWT.
-4. The browser stores it under `verdant_token` and sends it as a bearer token.
-5. File endpoints repeat authorization before returning inline content.
-6. The frontend creates a temporary object URL and displays it in an `iframe`.
+1. Login sends credentials in a JSON POST body, never query parameters. The form appears after hydration, uses POST and has no named password field for native URL submission.
+2. FastAPI checks an Argon2 hash and the active employee record. Failed attempts are rate-limited.
+3. Login sets an HttpOnly, SameSite=Strict session cookie. Non-development deployments require HTTPS and use Secure cookies.
+4. The frontend uses `credentials: include`, not localStorage tokens. Logout clears the cookie. Cookie-authenticated mutations require the configured frontend Origin.
+5. Every file/preview request repeats authorization and rejects archived documents.
+6. PDFs render using bundled PDF.js workers and canvas with paging, zoom and fit-to-width. No external document service receives file content.
+7. Images use authenticated temporary blob URLs. DOCX/PPTX text, XLSX/CSV tables and TXT/MD text use bounded server previews. Office previews are not layout-perfect: use PDF when exact formatting matters.
 
-Browser preview still depends on the file type. PDF normally displays inline; some office formats will require a future server-side conversion/preview service.
+Upload formats are PDF, PNG/JPEG/GIF/WebP, TXT/MD/CSV and modern DOCX/XLSX/PPTX. HTML, SVG, executables and legacy binary Office formats are rejected; convert these to PDF first. Text/Office previews are capped at 20 MB and output limits are stated in the reader.
+
+See [workspace upgrade and security notes](WORKSPACE_UPDATE.md) for rollout, test commands and remaining deployment considerations.
 
 ## 14. Search and future embeddings
 
@@ -317,7 +328,7 @@ The current baseline does not install pgvector. The future semantic-search imple
 
 | Desired change | Main files | Also check |
 |---|---|---|
-| Change login screen | `frontend/app/features/auth/login-view.tsx` | `routers/auth.py`, auth schema/service if fields change |
+| Change login screen | `frontend/app/verdant-app.tsx` | `routers/auth.py`, auth schema/service if fields change |
 | Change workspace UI | `frontend/app/verdant-app.tsx` | `domain-types.ts`, presentation helpers |
 | Change theme | `frontend/app/globals.css` | Tailwind classes at the feature call site |
 | Add a persistent field | Relevant model and schema package | Router/service, frontend type/form, new migration, seed, tests, docs |
@@ -388,8 +399,8 @@ npm run build
 ## 18. Product limitations still requiring planned work
 
 - Employee creation, deactivation, password reset, and role administration do not yet have product screens.
-- JWT storage uses browser `localStorage`; production security review may choose secure cookies or company SSO.
-- Browser preview is file-format dependent; office conversion is not implemented.
+- Sessions now use HttpOnly cookies. Company SSO, server-side session revocation, shared multi-worker login throttling and a full deployment security review remain separate production tasks.
+- Office previews extract readable content; exact Office pagination, charts, tracked changes and CAD/legacy-format conversion are not implemented.
 - Filesystem storage is designed for one shared storage root. Horizontal backend scaling needs shared/object storage and coordinated backups.
 - Email/chat notifications and background jobs are not implemented.
 - Full-content extraction, OCR, chunking, embeddings, and semantic search are not implemented.

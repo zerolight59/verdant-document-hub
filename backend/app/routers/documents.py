@@ -12,7 +12,6 @@ from app.core.security import get_current_employee
 from app.models import (
     AccessLevel,
     Document,
-    DocumentRequirement,
     DocumentReview,
     DocumentVersion,
     Employee,
@@ -55,6 +54,10 @@ async def upload_version(
         employee,
         {AccessLevel.EDIT, AccessLevel.MANAGE},
     )
+    if requirement.status in {RequirementStatus.SUBMITTED, RequirementStatus.UNDER_REVIEW}:
+        raise HTTPException(
+            status_code=409, detail="Wait for the reviewer before uploading another version"
+        )
     stored = await store_upload(
         file,
         "projects",
@@ -156,7 +159,6 @@ def submit_version(
         )
     if requirement.status not in {
         RequirementStatus.DRAFT,
-        RequirementStatus.CHANGES_REQUESTED,
     }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -204,7 +206,7 @@ def start_review(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review not found",
         )
-    if review.reviewer_employee_id != employee.id and not employee.is_admin:
+    if review.reviewer_employee_id != employee.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the assigned reviewer can start this review",
@@ -212,7 +214,11 @@ def start_review(
 
     version = db.get(DocumentVersion, review.document_version_id)
     document = db.get(Document, version.document_id)
-    requirement = db.get(DocumentRequirement, document.requirement_id)
+    requirement = require_requirement_access(
+        db, document.requirement_id, employee, {AccessLevel.REVIEW}
+    )
+    if latest_version(db, document.id).id != version.id:
+        raise HTTPException(status_code=409, detail="This review belongs to an older version")
     if requirement.status not in {
         RequirementStatus.SUBMITTED,
         RequirementStatus.UNDER_REVIEW,
@@ -254,7 +260,7 @@ def decide_review(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review not found",
         )
-    if review.reviewer_employee_id != employee.id and not employee.is_admin:
+    if review.reviewer_employee_id != employee.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the assigned reviewer can decide this review",
@@ -262,7 +268,13 @@ def decide_review(
 
     version = db.get(DocumentVersion, review.document_version_id)
     document = db.get(Document, version.document_id)
-    requirement = db.get(DocumentRequirement, document.requirement_id)
+    requirement = require_requirement_access(
+        db, document.requirement_id, employee, {AccessLevel.REVIEW}
+    )
+    if latest_version(db, document.id).id != version.id:
+        raise HTTPException(status_code=409, detail="This review belongs to an older version")
+    if payload.decision == ReviewDecision.CHANGES_REQUESTED and not (payload.comment or "").strip():
+        raise HTTPException(status_code=422, detail="Explain the changes the author needs to make")
     if requirement.status != RequirementStatus.UNDER_REVIEW:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -326,10 +338,27 @@ def version_history(
             "change_summary": item.change_summary,
             "created_at": item.created_at,
             "submitted_at": item.submitted_at,
+            "review": review_summary(db, item.id),
             "view_url": f"/api/documents/files/project/{item.id}",
         }
         for item in versions
     ]
+
+
+def review_summary(db: Session, version_id: int) -> dict | None:
+    review = db.scalar(
+        select(DocumentReview).where(DocumentReview.document_version_id == version_id)
+    )
+    if not review:
+        return None
+    reviewer = db.get(Employee, review.reviewer_employee_id)
+    return {
+        "id": review.id,
+        "decision": review.decision.value,
+        "comment": review.comment,
+        "decided_at": review.decided_at,
+        "reviewer_name": reviewer.name if reviewer else "Former employee",
+    }
 
 
 @router.get("/files/project/{version_id}")
@@ -357,6 +386,11 @@ def view_project_file(
         media_type=version.mime_type,
         filename=version.file_name,
         content_disposition_type="inline",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -366,7 +400,7 @@ def archive_requirement(
     employee: Annotated[Employee, Depends(get_current_employee)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, str]:
-    requirement = require_requirement_access(db, requirement_id, employee)
+    requirement = require_requirement_access(db, requirement_id, employee, lock=True)
     require_project_owner(db, requirement.project_id, employee)
     requirement.archived_at = datetime.now(UTC)
     requirement.status = RequirementStatus.ARCHIVED

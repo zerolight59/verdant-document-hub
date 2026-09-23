@@ -11,12 +11,15 @@ from app.core.database import get_db
 from app.core.security import get_current_employee
 from app.models import (
     Employee,
+    Project,
+    ProjectMember,
     ProjectResearchLink,
     ResearchCategory,
     ResearchDocument,
     ResearchDocumentVersion,
     ResearchEndorsement,
 )
+from app.models.research import ResearchRelatedLink
 from app.schemas import CategoryCreate, EndorseResearch, LinkResearch
 from app.services.audit_service import write_audit
 from app.services.permission_service import require_project_access
@@ -78,7 +81,7 @@ def create_category(
 
 @router.get("")
 def list_research(
-    _: Annotated[Employee, Depends(get_current_employee)],
+    employee: Annotated[Employee, Depends(get_current_employee)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[dict]:
     documents = db.scalars(
@@ -106,6 +109,24 @@ def list_research(
                 "category_id": document.category_id,
                 "category": db.get(ResearchCategory, document.category_id).name,
                 "uploaded_by": db.get(Employee, document.uploaded_by_id).name,
+                "uploaded_by_id": document.uploaded_by_id,
+                "related": [
+                    {"id": other.id, "name": other.name}
+                    for other in db.scalars(
+                        select(ResearchDocument).where(
+                            ResearchDocument.archived_at.is_(None),
+                            ResearchDocument.id.in_(
+                                select(ResearchRelatedLink.target_id)
+                                .where(ResearchRelatedLink.source_id == document.id)
+                                .union(
+                                    select(ResearchRelatedLink.source_id).where(
+                                        ResearchRelatedLink.target_id == document.id
+                                    )
+                                )
+                            ),
+                        )
+                    ).all()
+                ],
                 "created_at": document.created_at,
                 "current_version": (
                     None
@@ -126,6 +147,23 @@ def list_research(
                         "label": item.label,
                     }
                     for item, endorser in endorsements
+                ],
+                "projects": [
+                    {"id": project.id, "name": project.name}
+                    for project in db.scalars(
+                        select(Project)
+                        .join(ProjectResearchLink, ProjectResearchLink.project_id == Project.id)
+                        .where(
+                            ProjectResearchLink.research_document_id == document.id,
+                            Project.archived_at.is_(None),
+                            (Project.owner_id == employee.id)
+                            | Project.id.in_(
+                                select(ProjectMember.project_id).where(
+                                    ProjectMember.employee_id == employee.id
+                                )
+                            ),
+                        )
+                    ).all()
                 ],
             }
         )
@@ -196,7 +234,9 @@ async def upload_research_version(
     db: Annotated[Session, Depends(get_db)],
     file: UploadFile = File(...),
 ) -> dict:
-    document = db.get(ResearchDocument, document_id)
+    document = db.scalar(
+        select(ResearchDocument).where(ResearchDocument.id == document_id).with_for_update()
+    )
     if not document or document.archived_at is not None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -254,6 +294,9 @@ def view_research_file(
             detail="Research version not found",
         )
     path = Path(version.file_path)
+    document = db.get(ResearchDocument, version.research_document_id)
+    if not document or document.archived_at is not None:
+        raise HTTPException(status_code=404, detail="Research document not found")
     if not path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -264,6 +307,11 @@ def view_research_file(
         media_type=version.mime_type,
         filename=version.file_name,
         content_disposition_type="inline",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -381,3 +429,127 @@ def archive_research(
     )
     db.commit()
     return {"message": "Research document archived and remains recoverable"}
+
+
+@router.get("/{document_id}/versions")
+def research_versions(
+    document_id: int,
+    _: Annotated[Employee, Depends(get_current_employee)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[dict]:
+    document = db.get(ResearchDocument, document_id)
+    if not document or document.archived_at is not None:
+        raise HTTPException(404, "Research document not found")
+    return [
+        {
+            "id": v.id,
+            "version_number": v.version_number,
+            "file_name": v.file_name,
+            "mime_type": v.mime_type,
+            "file_size": v.file_size,
+            "created_at": v.created_at,
+            "view_url": f"/api/research/files/{v.id}",
+        }
+        for v in db.scalars(
+            select(ResearchDocumentVersion)
+            .where(ResearchDocumentVersion.research_document_id == document_id)
+            .order_by(ResearchDocumentVersion.version_number.desc())
+        ).all()
+    ]
+
+
+@router.post("/{document_id}/related/{target_id}")
+def relate(
+    document_id: int,
+    target_id: int,
+    employee: Annotated[Employee, Depends(get_current_employee)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    if document_id == target_id:
+        raise HTTPException(422, "Choose a different document")
+    for identifier in (document_id, target_id):
+        document = db.get(ResearchDocument, identifier)
+        if not document or document.archived_at is not None:
+            raise HTTPException(404, "Research document not found")
+    source, target = sorted((document_id, target_id))
+    existing = db.scalar(
+        select(ResearchRelatedLink).where(
+            ResearchRelatedLink.source_id == source, ResearchRelatedLink.target_id == target
+        )
+    )
+    if not existing:
+        link = ResearchRelatedLink(source_id=source, target_id=target, linked_by_id=employee.id)
+        db.add(link)
+        db.flush()
+        write_audit(
+            db,
+            employee.id,
+            "RESEARCH_REFERENCE_ADDED",
+            "research_document",
+            document_id,
+            {"target_id": target_id},
+        )
+        db.commit()
+    return {"message": "Related document linked"}
+
+
+@router.delete("/{document_id}/related/{target_id}")
+def unrelate(
+    document_id: int,
+    target_id: int,
+    employee: Annotated[Employee, Depends(get_current_employee)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    source, target = sorted((document_id, target_id))
+    link = db.scalar(
+        select(ResearchRelatedLink).where(
+            ResearchRelatedLink.source_id == source, ResearchRelatedLink.target_id == target
+        )
+    )
+    if not link:
+        raise HTTPException(404, "Link not found")
+    if link.linked_by_id != employee.id and not employee.is_admin:
+        raise HTTPException(403, "Only the link creator or administrator can remove this reference")
+    db.delete(link)
+    write_audit(
+        db,
+        employee.id,
+        "RESEARCH_REFERENCE_REMOVED",
+        "research_document",
+        document_id,
+        {"target_id": target_id},
+    )
+    db.commit()
+    return {"message": "Reference removed"}
+
+
+@router.delete("/{document_id}/links/{project_id}")
+def unlink_project(
+    document_id: int,
+    project_id: int,
+    employee: Annotated[Employee, Depends(get_current_employee)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    project = require_project_access(db, project_id, employee)
+    link = db.scalar(
+        select(ProjectResearchLink).where(
+            ProjectResearchLink.project_id == project_id,
+            ProjectResearchLink.research_document_id == document_id,
+        )
+    )
+    if not link:
+        raise HTTPException(404, "Link not found")
+    if project.owner_id != employee.id and link.linked_by_id != employee.id:
+        raise HTTPException(403, "Only the project owner or link creator can remove this link")
+    db.delete(link)
+    write_audit(
+        db,
+        employee.id,
+        "RESEARCH_UNLINKED",
+        "research_document",
+        document_id,
+        {"project_id": project_id},
+        project_id=project_id,
+    )
+    db.commit()
+    return {"message": "Project link removed"}

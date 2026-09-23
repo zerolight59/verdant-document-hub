@@ -331,3 +331,6 @@ def seed() -> None:
 
 if __name__ == "__main__":
     seed()
+    from scripts.seed_showcase import seed_showcase
+
+    print(seed_showcase())

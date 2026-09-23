@@ -6,13 +6,16 @@ Verdant is an internal company document-management product. It combines controll
 
 - Verdant-owned employee ID/username and password authentication with Argon2 hashes.
 - Reusable lifecycle templates plus project-specific stages.
-- Project membership with view, edit, review, and manage access.
+- A personal homepage with project memberships and assigned document actions.
+- Strict document assignments: only the responsible employee uploads/submits, and only the assigned reviewer reviews. Owner/admin status does not bypass this.
 - Document-specific sharing for visitors without exposing a complete project.
 - One responsible employee and one different reviewer per required document.
 - Immutable file versions and the workflow `Draft → Submitted → Under review → Changes requested → New version → Approved`.
 - Reviewer comments, project-scoped audit history, recoverable archives, and SHA-256 file checksums.
 - Nested research classifications, research versioning, project links, and administrator endorsement badges.
-- Authenticated in-browser file viewing and metadata search.
+- In-app PDF paging/zoom, image viewing, readable Office/text previews and version comparison.
+- Browsable research classifications, related research references and navigable project links.
+- Permission-filtered metadata search including document-only shares.
 - Streamed uploads with a configurable size limit and failed-transaction cleanup.
 
 ## Technology
@@ -20,7 +23,7 @@ Verdant is an internal company document-management product. It combines controll
 - Frontend: React 19, TypeScript, Vinext/Vite, Tailwind, and shadcn/Base UI
 - Backend: FastAPI, SQLAlchemy 2, Alembic, and Pydantic
 - Database: PostgreSQL through psycopg
-- Authentication: JWT access tokens and Argon2 password hashes
+- Authentication: HttpOnly/SameSite session cookies, Origin checks, login throttling and Argon2 password hashes
 - File storage: a configured filesystem root; PostgreSQL stores metadata, paths, versions, and integrity hashes
 
 Docker is not required and Docker configuration is not included on this branch.
@@ -114,7 +117,7 @@ Open `http://localhost:3000`. FastAPI documentation is at `http://localhost:8000
 
 ## Database migrations
 
-The PostgreSQL baseline is `0001_postgresql`; the current revision is `0002_search_indexes`. For a model change:
+The PostgreSQL baseline is `0001_postgresql`; the current revision is `0003_research_related_links`. For a model change:
 
 ```powershell
 Set-Location backend
@@ -142,6 +145,8 @@ Set-Location ..\backend
 The final Alembic check generates PostgreSQL SQL without changing a database. `alembic check` should additionally be run against the configured PostgreSQL development database.
 
 ## Documentation
+
+Start with the [visual user guide (20 pages)](output/pdf/Verdant-User-Guide.pdf), [demo showcase and presentation walkthrough](docs/DEMO_SHOWCASE.md), and [current workspace behavior, update instructions and security notes](docs/WORKSPACE_UPDATE.md).
 
 - [Visual user guide (PDF)](output/pdf/Verdant-User-Guide.pdf)
 - [Local installation and restart helpers](LOCAL-RUN.md)

@@ -77,3 +77,12 @@ class ProjectResearchLink(CreatedAtMixin, Base):
 
 
 Index("ix_research_documents_search", ResearchDocument.name, ResearchDocument.category_id)
+
+
+class ResearchRelatedLink(CreatedAtMixin, Base):
+    __tablename__ = "research_related_links"
+    __table_args__ = (UniqueConstraint("source_id", "target_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("research_documents.id", ondelete="CASCADE"))
+    target_id: Mapped[int] = mapped_column(ForeignKey("research_documents.id", ondelete="CASCADE"))
+    linked_by_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="RESTRICT"))

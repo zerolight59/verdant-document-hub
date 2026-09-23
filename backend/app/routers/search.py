@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.core.security import get_current_employee
 from app.models import (
     AuditLog,
+    DocumentPermission,
     DocumentRequirement,
     DocumentType,
     Employee,
@@ -42,10 +43,16 @@ def search(
             ),
         )
     )
-    if not employee.is_admin:
-        project_query = project_query.where(
-            (Project.owner_id == employee.id) | (Project.id.in_(project_ids))
-        )
+    project_query = project_query.where(
+        Project.archived_at.is_(None),
+        (Project.owner_id == employee.id)
+        | (Project.id.in_(project_ids))
+        | DocumentRequirement.id.in_(
+            select(DocumentPermission.requirement_id).where(
+                DocumentPermission.employee_id == employee.id
+            )
+        ),
+    )
 
     project_results = [
         {

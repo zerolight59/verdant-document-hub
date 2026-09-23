@@ -1,246 +1,347 @@
-"""Build the visual user guide from the checked-in sample screenshots.
-
-Run: python -m pip install -r scripts/requirements-docs.txt
-     python scripts/build_user_guide.py
+"""Build the visual user guide from real, checked-in application screenshots.
+Install scripts/requirements-docs.txt, then run python scripts/build_user_guide.py.
+Refresh screenshots with frontend/tests/capture-guide.mjs against a demo installation.
 """
-from pathlib import Path
 from html import escape
-from reportlab.pdfgen import canvas
-from reportlab.lib.colors import HexColor, Color
+from pathlib import Path
+
+from reportlab.lib.colors import HexColor
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import Paragraph
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Paragraph
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "docs" / "user-guide-assets"
 OUTPUT = ROOT / "output" / "pdf" / "Verdant-User-Guide.pdf"
 OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+W, H = 1200, 850
 FONT, BOLD = "Helvetica", "Helvetica-Bold"
-font_dir = Path("C:/Windows/Fonts")
-if (font_dir / "arial.ttf").exists():
-    pdfmetrics.registerFont(TTFont("Guide", str(font_dir / "arial.ttf")))
-    pdfmetrics.registerFont(TTFont("GuideBold", str(font_dir / "arialbd.ttf")))
-    pdfmetrics.registerFontFamily("Guide", normal="Guide", bold="GuideBold", italic="Guide", boldItalic="GuideBold")
+fonts = Path("C:/Windows/Fonts")
+if (fonts / "arial.ttf").exists():
+    for name, filename in (("Guide", "arial.ttf"), ("GuideBold", "arialbd.ttf")):
+        pdfmetrics.registerFont(TTFont(name, str(fonts / filename)))
+    pdfmetrics.registerFontFamily("Guide", normal="Guide", bold="GuideBold",
+                                 italic="Guide", boldItalic="GuideBold")
     FONT, BOLD = "Guide", "GuideBold"
-
-W, H = 1024, 720
-GREEN, INK, MUTED = "#174D38", "#183329", "#52675D"
-BG, BORDER, LIME, LIGHT = "#F5F7F2", "#D8E3DA", "#DDF1B6", "#EAF2E8"
+INK, GREEN, MUTED, BG, LINE = "#203C2E", "#246249", "#63776A", "#F5F8F4", "#DDE7DE"
+PAGES = 20
 C = canvas.Canvas(str(OUTPUT), pagesize=(W, H))
-C.setTitle("Verdant - A visual guide to your document workspace")
+C.setTitle("Verdant - Visual User Guide")
 C.setAuthor("Verdant Document Hub")
-C.setSubject("Project documents, roles, reviews, research, sharing, and local setup")
+C.setSubject("Page-by-page actions, roles, document viewing, review workflow and demo walkthrough")
 page_number = 0
 
-def rect(x, top, width, height, fill, stroke=None, radius=12):
-    C.setFillColor(HexColor(fill))
-    C.setStrokeColor(HexColor(stroke or fill))
-    C.roundRect(x, H-top-height, width, height, radius, fill=1, stroke=bool(stroke))
 
-def text(value, x, top, width, size=14, color=INK, bold=False, leading=None):
-    style = ParagraphStyle("t", fontName=BOLD if bold else FONT, fontSize=size,
-                           leading=leading or size*1.4, textColor=HexColor(color))
+def box(x, y, width, height, fill="#FFFFFF", border=LINE, radius=10):
+    C.setFillColor(HexColor(fill))
+    C.setStrokeColor(HexColor(border))
+    C.roundRect(x, H-y-height, width, height, radius, fill=1, stroke=1)
+
+
+def text(value, x, y, width, size=14, color=INK, bold=False):
+    style = ParagraphStyle("guide", fontName=BOLD if bold else FONT, fontSize=size,
+                           leading=size*1.4, textColor=HexColor(color))
     paragraph = Paragraph(value, style)
     _, height = paragraph.wrap(width, H)
-    if top + height > 662:
-        raise ValueError(f"Text exceeds content area: {value[:65]} at {top}+{height}")
-    paragraph.drawOn(C, x, H-top-height)
+    if y+height > 790:
+        raise ValueError(f"Text outside content area on page {page_number}: {value[:60]}")
+    paragraph.drawOn(C, x, H-y-height)
     return height
 
-def line(x1, top1, x2, top2, color=BORDER, width=1):
-    C.setStrokeColor(HexColor(color)); C.setLineWidth(width)
-    C.line(x1, H-top1, x2, H-top2)
 
-def arrow(x1, top1, x2, top2, color=GREEN):
-    import math
-    line(x1, top1, x2, top2, color, 2)
-    angle = math.atan2(top2-top1, x2-x1)
-    for delta in (-0.5, 0.5):
-        line(x2, top2, x2-9*math.cos(angle+delta), top2-9*math.sin(angle+delta), color, 2)
-
-def pill(label, x, top, width, fill=LIGHT, color=GREEN):
-    rect(x, top, width, 27, fill, radius=13)
-    text(label, x+12, top+5, width-20, 11, color, True)
-
-def card(x, top, width, height, title, body, fill="#FFFFFF", title_size=18):
-    rect(x, top, width, height, fill, BORDER)
-    th = text(title, x+20, top+19, width-40, title_size, GREEN, True)
-    text(body, x+20, top+29+th, width-40, 13)
-
-def base(section, title, subtitle):
+def page(section, title, subtitle):
     global page_number
     page_number += 1
-    C.setFillColor(HexColor(BG)); C.rect(0, 0, W, H, fill=1, stroke=0)
-    rect(40, 27, 26, 26, GREEN, radius=7)
-    line(47, 46, 59, 34, LIME, 2)
-    text("VERDANT", 77, 29, 160, 15, GREEN, True)
-    text(section.upper(), 730, 31, 254, 10, MUTED)
-    text(title, 40, 83, 944, 31, INK, True)
-    text(subtitle, 40, 130, 936, 13, MUTED)
-    line(40, 676, 984, 676)
-    C.setFont(FONT, 9); C.setFillColor(HexColor(MUTED))
-    C.drawString(40, 24, "VERDANT  /  USER GUIDE  /  September 2026  /  Sample data shown")
-    C.drawRightString(984, 24, f"{page_number:02d} / 08")
+    C.setFillColor(HexColor(BG))
+    C.rect(0, 0, W, H, fill=1, stroke=0)
+    text("verdant.", 36, 25, 190, 24, GREEN, True)
+    text(section.upper(), 815, 31, 349, 10, MUTED, True)
+    text(title, 36, 78, 1128, 31, INK, True)
+    text(subtitle, 36, 126, 1115, 13, MUTED)
+    C.setStrokeColor(HexColor(LINE))
+    C.line(36, 34, 1164, 34)
+    C.setFont(FONT, 9)
+    C.setFillColor(HexColor(MUTED))
+    C.drawString(36, 18, "VERDANT / VISUAL USER GUIDE / SEPTEMBER 2026 / FICTIONAL DEMO DATA")
+    C.drawRightString(1164, 18, f"{page_number:02d} / {PAGES}")
+    C.bookmarkPage(f"page{page_number}")
+    C.addOutlineEntry(title, f"page{page_number}", level=0)
 
-def screenshot(name, x, top, width, height):
-    rect(x-1, top-1, width+2, height+2, "#FFFFFF", BORDER, 5)
-    C.drawImage(str(ASSETS/name), x, H-top-height, width=width, height=height,
+
+def image(name, x=36, y=179, width=820, height=None):
+    height = height or width*1000/1440
+    box(x-1, y-1, width+2, height+2, radius=5)
+    C.drawImage(str(ASSETS / (name+".png")), x, H-y-height, width=width, height=height,
                 preserveAspectRatio=True, anchor="c", mask="auto")
 
-def step(number, title, body, x, top, width=278):
-    rect(x, top, 30, 30, GREEN, radius=15)
-    text(str(number), x+10, top+5, 22, 13, "#FFFFFF", True)
-    height=text(title, x+43, top, width-43, 17, INK, True)
-    return text(body, x+43, top+height+9, width-43, 13, MUTED)
+
+def steps(items, x=884, y=185, width=280):
+    for number, (title, body) in enumerate(items, 1):
+        box(x, y+1, 26, 26, GREEN, GREEN, 13)
+        text(str(number), x+8, y+3, 20, 12, "#FFFFFF", True)
+        th = text(title, x+38, y, width-38, 17, INK, True)
+        bh = text(body, x+38, y+th+8, width-38, 13, MUTED)
+        y += th+bh+34
+    return y
+
+
+def tip(value):
+    box(884, 676, 280, 89, "#EAF2E8")
+    text(value, 898, 688, 252, 11, GREEN)
+
+
+def screen(section, title, subtitle, name, items, note):
+    page(section, title, subtitle)
+    image(name)
+    steps(items)
+    tip(note)
+    C.showPage()
+
 
 # 01
-base("Start here", "Company knowledge, in one place.",
-     "Find documents, understand their status, and know who is responsible for the next step.")
-pill("TWO CONNECTED AREAS", 40, 185, 191)
-card(40, 231, 456, 226, "Project documents",
-     "Required files for a specific project.<br/><br/>The owner defines stages and document requirements, "
-     "assigns people, and controls access. Uploads move through a review workflow.")
-card(516, 231, 468, 226, "Research library",
-     "A shared reference library for the company.<br/><br/>Employees choose or create classifications, "
-     "upload files, and browse knowledge. A reference can be linked to a project without requiring a project review.")
-rect(40, 484, 944, 143, GREEN)
-text("Which area should I use?", 64, 502, 880, 21, "#FFFFFF", True)
-text("<b>A required technical drawing for Project X?</b> Use its project document requirement.<br/>"
-     "<b>A general study about a material?</b> Upload it to the research library.<br/>"
-     "<b>Useful in both places?</b> Keep the research reference and link it to the project.",
-     64, 543, 866, 14, "#FFFFFF")
+page("Start here", "Your documents. Your next step. One workspace.",
+     "A visual handbook for employees, project owners, reviewers and read-only visitors.")
+image("home", 36, 180, 744)
+box(808, 180, 356, 222, GREEN, GREEN)
+text("Two connected spaces", 832, 202, 306, 22, "#FFFFFF", True)
+text("<b>Project documents</b><br/>Required files, named responsibilities, versions and reviews."
+     "<br/><br/><b>Research library</b><br/>Shared knowledge, classifications, references and endorsements.",
+     832, 251, 300, 14, "#FFFFFF")
+text("Find the page you need", 808, 432, 350, 20, GREEN, True)
+index = [("Sign in, Home, My actions and projects", "02-05"), ("People and required documents", "06-07"),
+         ("Read, upload, review and compare", "08-11"), ("Research and project references", "12-14"),
+         ("Sharing, search, activity and Office files", "15-18"), ("Demo walkthrough and local setup", "19-20")]
+for i, (title, number) in enumerate(index):
+    text(title, 808, 474+i*36, 280, 13)
+    text(number, 1107, 474+i*36, 57, 13, GREEN, True)
+text("How to use this guide: follow the numbered instructions beside each actual application screen. "
+     "Some examples show an unsaved form. Sample engineering values are invented and must not be used for real work.",
+     36, 720, 730, 12, MUTED)
 C.showPage()
 
 # 02
-base("Navigate", "Your project workspace",
-     "The project screen brings required documents, responsibilities, and progress together.")
-screenshot("project-workspace.png", 40, 180, 648, 450)
-step(1, "Choose the project", "Use the project selector. You see projects that your account can access.", 711, 184, 275)
-step(2, "Read the overview", "Approved, awaiting action, and readiness summarize the required document statuses.", 711, 292, 275)
-step(3, "Find the document", "Each stage lists its requirements, latest file version, responsible employee, and reviewer.", 711, 410, 275)
-step(4, "Use its actions", "View opens the file. New version uploads a revision. Access is available to project owners.", 711, 540, 275)
+page("Sign in", "Choose the right role for your demonstration",
+     "Open http://localhost:3000. Use an employee ID or username, then enter the password.")
+image("login", 36, 180, 740)
+text("Demo accounts", 808, 182, 350, 22, GREEN, True)
+text("All sample accounts use <b>verdant-demo</b>.<br/>These credentials are for a local demo only.",
+     808, 223, 345, 13)
+accounts = [
+    ("EMP-1042", "Ananya / project owner"),
+    ("EMP-1071", "Mira / responsible employee"),
+    ("EMP-1088", "Vikram / assigned reviewer"),
+    ("VIS-1100", "Leela / document-only visitor"),
+    ("DEMO-1201", "Rohan / additional engineer"),
+    ("DEMO-1202", "Sara / project observer"),
+]
+for i, (code, role) in enumerate(accounts):
+    box(808, 285+i*66, 356, 57)
+    text(code, 823, 295+i*66, 327, 14, GREEN, True)
+    text(role, 823, 317+i*66, 327, 11, MUTED)
+text("<b>Sign out before changing roles.</b> Use separate browser profiles or private windows for a live "
+     "author/reviewer demonstration. Different tabs in the same browser profile share one session.",
+     36, 723, 740, 12)
 C.showPage()
 
 # 03
-base("Owner setup", "Plan the documents before uploading files",
-     "A requirement is a named place for one document and its versions. Stages organize when it is needed.")
-labels=[
-("01", "Create the project", "Choose New project, add a name and description, and select a lifecycle template."),
-("02", "Set up the stages", "Start from template stages and use Add stage for the project's own lifecycle."),
-("03", "Add the people", "Use Manage members to add employees and choose their project access level."),
-("04", "Define requirements", "Use Add required document. Choose a stage, document type, responsible person, and reviewer.")]
-for i, (number, title, body) in enumerate(labels):
-    x=40+i*240
-    card(x, 185, 224, 213, title, body, title_size=17)
-    pill(number, x+16, 409, 48)
-    if i < 3: arrow(x+226, 290, x+238, 290)
-text("Different people, different responsibilities", 40, 468, 940, 23, INK, True)
-for x, title, body in [
-    (40, "Owner / administrator", "Sets up requirements, people, and document access."),
-    (360, "Responsible employee", "Uploads the file, revises it, and submits it for review."),
-    (680, "Assigned reviewer", "Checks the latest submission and approves or requests changes.")]:
-    card(x, 513, 304, 128, title, body, title_size=16)
-C.showPage()
+screen("Home + My actions", "Start with your own workspace",
+       "Home is the landing page after login. My actions focuses on the work assigned specifically to you.",
+       "home", [
+           ("See your memberships", "Project cards show only the projects you own or belong to. Select a card to open it."),
+           ("Check your next action", "Choose <b>My actions</b> or a row under <b>Needs your attention</b>. The matching document opens directly."),
+           ("Use the workspace shortcuts", "The summary cards lead to My projects, My actions and the shared research library."),
+       ], "The workspace refreshes about every 30 seconds while visible, except while a form or action is open.")
 
 # 04
-base("Review flow", "One document. Multiple versions. One reviewer.",
-     "Uploading saves a draft. Submitting sends that version into its assigned review workflow.")
-states=[
-("Missing", "No file uploaded.", "#EEF1EC"),
-("Draft", "Latest upload is ready\nto submit.", "#EDF0FF"),
-("Submitted", "Waiting for the\nassigned reviewer.", "#FFF1DA"),
-("Under review", "The reviewer is\nchecking the file.", "#FFF1DA"),
-("Approved", "This version has\nbeen accepted.", "#DDF1B6")]
-for i,(title,body,fill) in enumerate(states):
-    x=40+i*191
-    rect(x, 197, 178, 104, fill, BORDER)
-    text(title, x+14, 214, 152, 17, INK, True)
-    text(body.replace("\n","<br/>"), x+14, 248, 152, 12)
-    if i < 4: arrow(x+180, 248, x+189, 248)
-text("Upload", 144, 172, 100, 10, MUTED)
-text("Submit", 337, 172, 100, 10, MUTED)
-rect(385, 375, 229, 112, "#FFFFFF", BORDER)
-text("Upload the revised file", 403, 391, 195, 17, GREEN, True)
-text("New version returns to Draft.<br/>Submit it again for review.", 403, 428, 195, 12)
-rect(653, 375, 258, 112, "#FFF0E5", BORDER)
-text("Changes requested", 671, 391, 222, 17, "#8C4728", True)
-text("The responsible employee<br/>updates the document.", 671, 428, 222, 12)
-arrow(703, 305, 703, 367, "#99663B")
-arrow(646, 431, 620, 431, "#99663B")
-line(499, 374, 499, 338, GREEN, 2)
-line(499, 338, 315, 338, GREEN, 2)
-arrow(315, 338, 315, 306)
-rect(40, 530, 944, 111, GREEN)
-text("What to click", 61, 545, 900, 19, "#FFFFFF", True)
-text("<b>Uploader:</b> New version, choose the file, then Submit.<br/>"
-     "<b>Reviewer:</b> View, then Approve or Request changes. These buttons start the review and save the decision.<br/>"
-     "The current screen saves preset review comments. It does not provide a custom feedback editor or email alerts.",
-     61, 580, 900, 12, "#FFFFFF", leading=17)
-C.showPage()
+screen("My actions", "Know exactly what is waiting for you",
+       "Choose My actions in the sidebar. The list is based on individual document assignments.",
+       "my-actions", [
+           ("Missing or Draft", "As the responsible employee, upload the first file or open an existing draft and submit it when ready."),
+           ("Changes requested", "Read the review feedback. Correct the file, upload a new version with a change summary, then submit it again."),
+           ("Submitted or Under review", "As the assigned reviewer, open the document, start review if needed, then approve or send written feedback."),
+       ], "A viewer or observer may have no actions at all. A task leaves this list when it no longer needs that employee's action.")
+
+screen("My projects", "Create a document workspace",
+       "Select My projects in the sidebar. Choose Create project to open the form shown here.",
+       "create-project", [
+           ("Name the project", "Use a recognizable name and a short description. Example: <b>Project Y - pilot assembly</b>."),
+           ("Choose a starting lifecycle", "Select a company template if useful. Leave it blank to create your own stages later."),
+           ("Create, then configure", "Choose <b>Create project</b>. The creator is its owner. Next open <b>People &amp; stages</b>."),
+       ], "A Verdant project organizes documentation. It is not a schedule, budget or project-planning board.")
 
 # 05
-base("Research", "Build the company's shared reference library",
-     "Research documents are available to signed-in employees and do not use the project review pipeline.")
-screenshot("research-library.png", 40, 180, 648, 450)
-step(1, "Classify the knowledge", "Choose Classification. A parent classification lets you build nested topics.", 711, 184, 275)
-step(2, "Upload the reference", "Choose Upload file. Select a classification, add the title and description, and choose a file.", 711, 297, 275)
-step(3, "Read and reuse it", "Use View to open the file. Link it to the currently selected project when relevant.", 711, 428, 275)
-step(4, "Recognize useful work", "An administrator can Endorse a reference. This is a badge, not a publication gate.", 711, 541, 275)
-C.showPage()
+screen("Project / People & stages", "Build the team and lifecycle",
+       "Only the project owner can add members, stages and document requirements.",
+       "people-stages", [
+           ("Add employees", "Choose <b>Add member</b>, select an employee and save. Membership gives visibility into the project."),
+           ("Add lifecycle stages", "Choose <b>Add stage</b>. Use your project's real phases, such as Design, Validation and Release."),
+           ("Assign work separately", "Membership is not permission to upload every file. Each required document gets its own responsible employee and reviewer."),
+       ], "The owner may view and manage the project but cannot perform another employee's assigned upload or review.")
 
 # 06
-base("Access and traceability", "Share the right file. See what happened.",
-     "Project membership, document-only access, and the activity log serve different needs.")
-screenshot("visitor-inbox.png", 40, 181, 456, 317)
-screenshot("activity-log.png", 528, 181, 456, 317)
-card(40, 519, 456, 132, "Shared with me",
-     "A visitor can open explicitly shared files without seeing the full project. Owners use the document's Access button to grant access.", title_size=19)
-card(528, 519, 456, 132, "Project activity",
-     "Open Activity to see recorded project actions, the employee involved, and the time. The log supports traceability of uploads and reviews.", title_size=19)
-C.showPage()
+screen("Project / Required document", "Define one document slot",
+       "Choose Required document from the project header. The example form is filled but not saved.",
+       "requirement-form", [
+           ("Describe the required file", "Enter a clear title and document type or part. Put different part drawings in separate document slots."),
+           ("Choose stage and people", "Select the lifecycle stage, responsible employee and one different reviewer. Both employees must belong to the project."),
+           ("Save the requirement", "Add an optional due date and description, then save. The slot starts as <b>Missing</b> until the first upload."),
+       ], "Use Change assignments on a document to update people. Assignments cannot change while its review is pending or underway.")
 
 # 07
-base("Everyday use", "A practical routine for each role",
-     "Keep the document name stable; use versions when the same document changes.")
-card(40, 182, 456, 174, "As the responsible employee",
-     "1. Open your project and find the requirement.<br/>"
-     "2. Use New version to upload the file.<br/>"
-     "3. Check the preview, then Submit.<br/>"
-     "4. If changes are requested, revise and submit a new version.")
-card(516, 182, 468, 174, "As the reviewer",
-     "1. Open the project and locate a submitted document.<br/>"
-     "2. Use View to examine the latest file.<br/>"
-     "3. Choose Approve or Request changes.<br/>"
-     "4. Check Activity to confirm the recorded decision.")
-card(40, 376, 456, 147, "Find a document quickly",
-     "Use the top search bar with a title, type, or description. Open the result's project or research area, then use View.")
-card(516, 376, 468, 147, "Keep requirements clear",
-     "Use separate requirements for different parts, such as 'Technical drawing - front assembly'. Revised files belong to that requirement's version history.")
-rect(40, 545, 944, 106, LIGHT, BORDER)
-text("Know this version", 60, 560, 900, 18, GREEN, True)
-text("Search uses document metadata, not full document contents or semantic topics. PDF and common image files are best for in-browser viewing; Office files are not automatically converted. Historical versions are stored; side-by-side change comparison is not provided.", 60, 595, 900, 12)
-C.showPage()
+screen("Project / Documents", "Read without leaving the application",
+       "Choose Documents, then select a file in the stage-grouped list on the left.",
+       "project-workspace", [
+           ("Find the right document", "Filter by title or lifecycle stage. Each row shows its current status, responsible employee and version."),
+           ("Read in the main panel", "PDFs open inside Verdant. Use previous/next page and zoom controls above the page. Images and content previews use the same panel."),
+           ("Check the context", "Read the responsible employee, reviewer, version note and feedback. A missing upload shows an empty reader."),
+       ], "PDFs retain page layout. DOCX/PPTX show text; XLSX/CSV show tables. Export to PDF when exact Office formatting matters.")
 
 # 08
-base("Get started locally", "Open Verdant on your own computer",
-     "For a local demonstration, use the product branch and its Windows setup helpers. Docker is not required.")
-step(1, "Prepare the computer", "Install Git, Python 3.12+, Node.js 22.13+, and PostgreSQL 16+. Start PostgreSQL and keep its administrator password available.", 40, 180, 576)
-step(2, "Clone and install", "Clone the product-architecture-postgresql branch. In its folder, run the installer with -DemoData to create sample accounts in an empty database.", 40, 281, 576)
-rect(84, 381, 520, 104, GREEN)
+screen("Responsible employee / Upload", "Upload a version, then submit it",
+       "Example: Mira opens Atlas > Battery enclosure drawing, which has Changes requested.",
+       "upload-version", [
+           ("Read the feedback first", "Understand what the reviewer asked for. Update your file outside Verdant; the app stores and previews files, not an in-browser editor."),
+           ("Upload the corrected file", "Choose <b>Upload new version</b>, select the file, explain what changed, then choose <b>Upload</b>. Earlier files remain available."),
+           ("Submit the draft", "The new version is a <b>Draft</b>. Read it, then choose <b>Submit for review</b>. It appears in the assigned reviewer's My actions."),
+       ], "Only the responsible employee can upload or submit. Uploads are blocked while a submitted version is awaiting review.")
+
+# 09
+screen("Assigned reviewer / Review", "Make feedback clear and actionable",
+       "Start from My actions. On a Submitted document, select Start review before making a decision.",
+       "review-feedback", [
+           ("Inspect the latest file", "Check its content and version note. Use comparison or history when earlier versions exist."),
+           ("Approve or request changes", "<b>Approve</b> records acceptance of this version. <b>Request changes</b> opens the feedback form shown here."),
+           ("Explain the correction", "Written feedback is required for changes requests. Choose <b>Send feedback</b>. The responsible employee then uploads a new version."),
+       ], "Owners and administrators cannot bypass the assigned reviewer. A research endorsement is different from a project review.")
+
+# 10
+screen("Document history", "Keep the evidence, compare revisions",
+       "Older versions and their review comments stay attached to the same document.",
+       "version-comparison", [
+           ("Choose a version", "Use the version selector above the reader. An earlier version shows its own feedback and a historical-version notice."),
+           ("Compare side by side", "Choose <b>Compare versions side by side</b>. The selected version and another retained version each have reading controls."),
+           ("Return to the current file", "Close comparison and select the latest version before submitting or reviewing. Historical selection hides current review actions."),
+       ], "Comparison is visual; it does not automatically highlight edits or calculate a redline. Read the author's change summary too.")
+
+# 11
+screen("Research library / Browse", "Explore the company's knowledge",
+       "Research is a shared file library, not the controlled project review pipeline.",
+       "research-library", [
+           ("Browse classifications", "Choose a folder on the far left. A parent includes documents from its subcategories. All research removes the category filter."),
+           ("Switch between files", "Select a title in the middle column. The reader and document details update on the right."),
+           ("Look for useful context", "Read the description, uploader, endorsement badges and references. An endorsement is a trust signal, not a publishing gate."),
+       ], "Use the classification's filter for a local search, or the top search bar to search across accessible project and research metadata.")
+
+# 12
+screen("Research library / Contribute", "Publish research and connect it",
+       "Any signed-in employee can contribute research files without submitting them for a project review.",
+       "research-links", [
+           ("Classify and upload", "Use <b>+</b> beside Classifications to add a category or subcategory. Choose <b>Upload document</b>, enter a title and classification, then upload."),
+           ("Connect the reference", "<b>+ Link project</b> connects the file to an accessible project. <b>+ Add reference</b> connects related research documents."),
+           ("Keep one source", "Use <b>New version</b> for a revision of the same research document. Click a linked title to navigate. Do not duplicate a file just to reference it."),
+       ], "Senior approvers can Endorse research. Only authorized users can remove a link or archive a document; the server checks permission.")
+
+# 13
+screen("Project / Research links", "See the research behind the project",
+       "Open a project's Research links tab to browse references used by that team.",
+       "project-references", [
+           ("Link an existing reference", "Choose <b>Link research</b>, select a company research document and save."),
+           ("Open the source", "Select the linked document title. Verdant opens that document in the research library with its current version."),
+           ("Return via its project link", "In the research document, select the project reference to go back. Removing a link does not delete the research file."),
+       ], "Project names are visible in the research library only to employees who can access those projects.")
+
+# 14
+screen("Shared with me", "Share a document, not the whole project",
+       "The screen shown is Leela's read-only visitor account.",
+       "visitor-inbox", [
+           ("Owner: share the file", "Open the project document, choose <b>Share</b>, select an existing employee or visitor account and save."),
+           ("Visitor: open Shared with me", "Select the shared title in the sidebar's Shared with me area. Its latest version opens in the reader."),
+           ("Keep access narrow", "A document-only visitor does not gain access to the project dashboard, its other documents or its assigned work."),
+       ], "Sharing is to existing accounts, not a public anonymous URL. Only the project owner can manage document sharing.")
+
+# 15
+screen("Global search", "Go straight to the document you need",
+       "The search bar stays available at the top of the workspace.",
+       "search", [
+           ("Use recognizable terms", "Search a title, description, document type or research classification. Try <b>thermal</b> in the demo."),
+           ("Read the result context", "Results identify the project or research category so similar file names are easier to distinguish."),
+           ("Open the matching result", "Select a result to open that exact project, research or shared document in the appropriate workspace."),
+       ], "Search currently matches metadata. Full-file text search and semantic/topic search with embeddings are not implemented.")
+
+# 16
+screen("Project / Activity", "Understand what happened and who acted",
+       "The Activity tab shows the project's uploads, submissions, decisions, membership and reference changes.",
+       "activity-log", [
+           ("Read the timeline", "Entries include the action, actor and time. Review decision entries include written comments."),
+           ("Use it alongside history", "Activity explains the sequence. The document's version selector opens the actual files and version-specific feedback."),
+           ("Archive carefully", "Owners can archive project requirements; research uploaders/admins can archive research. A confirmation explains that stored history remains."),
+       ], "Archive hides a document; it is not a permanent file deletion. There is no self-service restore screen yet. The seeded history is fictional demo activity.")
+
+# 17
+screen("File reader / Office content", "View more than PDFs",
+       "Example: the fictional material comparison workbook opens as a table inside the research library.",
+       "office-preview", [
+           ("Choose a supported file", "PDF, PNG/JPEG/GIF/WebP, TXT/Markdown, CSV, DOCX, XLSX and PPTX can be viewed inside Verdant."),
+           ("Read the preview note", "Office previews show readable content, not original Office layout. Tables are bounded; the note states the row, column and sheet limits."),
+           ("Use PDF for exact appearance", "Export charts, complex formatting or legacy files to PDF before uploading when the precise layout is important."),
+       ], "Previewing does not edit the source file or execute spreadsheet formulas. To change content, edit it externally and upload a new version.")
+
+page("Live demonstration", "A useful 10-minute walkthrough",
+     "The showcase is already populated. These steps demonstrate real actions, not mocked screens.")
+cards = [
+    ("1 / Owner - show the big picture", "EMP-1042", "Home shows Project X, Atlas and Nova. Open Atlas, show its stages, document states and Research links.", "0-2 min"),
+    ("2 / Author - respond to feedback", "EMP-1071", "My actions > Battery enclosure drawing. Read the feedback. Upload demo-files/battery-enclosure-v3.pdf with a change summary, then Submit for review.", "2-5 min"),
+    ("3 / Reviewer - close the loop", "EMP-1088", "My actions > Battery enclosure drawing. Start review, inspect the new file and Compare versions. Approve with a short review note.", "5-7 min"),
+    ("4 / Visitor - read safely", "VIS-1100", "Shared with me > Material selection report. Read the multi-page PDF. No project management or upload actions are available.", "7-8 min"),
+    ("5 / Research - connect knowledge", "EMP-1071", "Browse DEMO research > Materials > Metals & alloys. Open the workbook, follow a related reference, and use a project link to return.", "8-10 min"),
+]
+for i, (title, account, body, timing) in enumerate(cards):
+    top = 176+i*114
+    box(36, top, 1128, 101)
+    text(title, 55, top+13, 400, 17, GREEN, True)
+    text(account+" / "+timing, 55, top+46, 380, 12, MUTED)
+    text(body, 468, top+18, 671, 14)
+text("Use a separate browser profile for each role, or sign out between accounts. Rerunning Add-DemoData.ps1 "
+     "does not reset this walkthrough after you complete it. For a clean rehearsal use a separate fresh demo database.",
+     36, 759, 1128, 11, MUTED)
+C.showPage()
+
+# 18
+page("Local setup + quick reference", "Keep the demo ready to run",
+     "The product branch is product-architecture-postgresql. Docker is not required.")
+box(36, 178, 545, 280)
+text("First installation", 58, 198, 500, 22, GREEN, True)
+text("Install Git, Python 3.12+, Node.js 22.13+ and PostgreSQL 16+. Clone the branch and run these "
+     "commands from the project folder:", 58, 239, 495, 14)
+box(58, 322, 501, 112, GREEN, GREEN)
 text("powershell -ExecutionPolicy Bypass<br/>"
      "-File .\\Install-Verdant.ps1 -DemoData<br/><br/>"
-     "powershell -ExecutionPolicy Bypass<br/>"
-     "-File .\\Start-Verdant.ps1", 100, 392, 490, 11, "#FFFFFF", leading=15)
-step(3, "Sign in and explore", "Open http://localhost:3000. Start with the owner account, then try the responsible employee, reviewer, and visitor accounts.", 40, 517, 576)
-rect(648, 182, 336, 357, "#FFFFFF", BORDER)
-text("Sample accounts", 670, 203, 290, 23, GREEN, True)
-text("All use password: <b>verdant-demo</b>", 670, 245, 284, 12)
-for top, code, role in [(288,"EMP-1042","Owner / administrator"),(347,"EMP-1071","Responsible employee"),(406,"EMP-1088","Assigned reviewer"),(465,"VIS-1100","Document-only visitor")]:
-    text(code, 670, top, 280, 17, INK, True)
-    text(role, 670, top+25, 280, 12, MUTED)
-text("Run each PowerShell command above as one line. Use Stop-Verdant.ps1 to stop the app, and Start-Verdant.ps1 after restarting Windows. Full installation steps: LOCAL-RUN.md in the repository.", 648, 560, 332, 11)
-C.linkURL("https://github.com/zerolight59/verdant-document-hub/tree/product-architecture-postgresql", (40,28,430,50), relative=0)
+     "powershell -ExecutionPolicy Bypass -File .\\Start-Verdant.ps1",
+     73, 339, 470, 12, "#FFFFFF")
+box(605, 178, 559, 280)
+text("Existing demo installation", 627, 198, 513, 22, GREEN, True)
+text("Update the code and dependencies, then run <b>Add-DemoData.ps1</b>. It applies migrations "
+     "and adds the showcase once. It does not replace employee passwords, existing documents or demo progress.",
+     627, 239, 507, 14)
+text("Open <b>http://localhost:3000</b>.<br/>Use <b>Stop-Verdant.ps1</b> to stop the app and "
+     "<b>Start-Verdant.ps1</b> after restarting Windows.", 627, 357, 507, 14)
+box(36, 482, 1128, 262)
+text("If something is not available", 58, 503, 1060, 22, GREEN, True)
+rows = [
+    ("No upload/review button", "Check the named responsible employee or reviewer; ownership alone does not grant that action."),
+    ("A new upload is blocked", "Wait for the current submitted/active review to finish. After changes are requested, upload a new version."),
+    ("Office layout looks different", "Office files show readable content. Use PDF for exact formatting; CAD/legacy/unsafe formats need conversion."),
+    ("A project or link is missing", "Ask its owner for membership or a document-only share. Company research visibility does not grant project access."),
+    ("Sign-in or setup fails", "Confirm PostgreSQL and both app services are running. Follow LOCAL-RUN.md and docs/LOCAL_INSTALLATION_WINDOWS.md."),
+]
+for i, (problem, solution) in enumerate(rows):
+    text(problem, 58, 549+i*36, 251, 11, GREEN, True)
+    text(solution, 325, 549+i*36, 811, 11)
+text("Use only fictional data in demos. Before company deployment, replace demo credentials and arrange HTTPS, "
+     "backups, restricted database access and a security review.", 36, 762, 1128, 11, MUTED)
 C.showPage()
+assert page_number == PAGES
 C.save()
 print(OUTPUT)

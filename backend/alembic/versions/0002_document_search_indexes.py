@@ -13,9 +13,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_index(
-        "ix_document_requirements_search", "document_requirements", ["title", "status"]
-    )
+    op.create_index("ix_document_requirements_search", "document_requirements", ["title", "status"])
     op.create_index("ix_research_documents_search", "research_documents", ["name", "category_id"])
 
 

@@ -50,8 +50,7 @@ def list_projects(
         ProjectMember.employee_id == employee.id
     )
     query = select(Project).where(Project.archived_at.is_(None))
-    if not employee.is_admin:
-        query = query.where((Project.owner_id == employee.id) | (Project.id.in_(member_projects)))
+    query = query.where((Project.owner_id == employee.id) | (Project.id.in_(member_projects)))
     return list(db.scalars(query.order_by(Project.created_at.desc())).all())
 
 
@@ -491,9 +490,10 @@ def assign_requirement(
     employee: Annotated[Employee, Depends(get_current_employee)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, str]:
-    requirement = require_requirement_access(db, requirement_id, employee)
+    requirement = require_requirement_access(db, requirement_id, employee, lock=True)
     require_project_owner(db, requirement.project_id, employee)
     validate_assignees(
+        # Assignment changes are rejected below while a review is in progress.
         db,
         requirement.project_id,
         [payload.responsible_employee_id, payload.reviewer_employee_id],
@@ -507,6 +507,10 @@ def assign_requirement(
             detail="Responsible employee and reviewer must be different",
         )
 
+    if requirement.status.value in {"SUBMITTED", "UNDER_REVIEW"}:
+        raise HTTPException(
+            status_code=409, detail="Finish the current review before changing assignments"
+        )
     requirement.responsible_employee_id = payload.responsible_employee_id
     requirement.reviewer_employee_id = payload.reviewer_employee_id
     write_audit(

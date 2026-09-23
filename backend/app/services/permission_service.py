@@ -24,7 +24,7 @@ def get_project_or_404(db: Session, project_id: int) -> Project:
 
 def require_project_access(db: Session, project_id: int, employee: Employee) -> Project:
     project = get_project_or_404(db, project_id)
-    if project.owner_id == employee.id or employee.is_admin:
+    if project.owner_id == employee.id:
         return project
 
     member = db.scalar(
@@ -43,7 +43,7 @@ def require_project_access(db: Session, project_id: int, employee: Employee) -> 
 
 def require_project_owner(db: Session, project_id: int, employee: Employee) -> Project:
     project = get_project_or_404(db, project_id)
-    if project.owner_id != employee.id and not employee.is_admin:
+    if project.owner_id != employee.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the project owner can do this",
@@ -56,8 +56,12 @@ def require_requirement_access(
     requirement_id: int,
     employee: Employee,
     allowed: set[AccessLevel] | None = None,
+    lock: bool = False,
 ) -> DocumentRequirement:
-    requirement = db.get(DocumentRequirement, requirement_id)
+    query = select(DocumentRequirement).where(DocumentRequirement.id == requirement_id)
+    if allowed is not None or lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    requirement = db.scalar(query)
     if not requirement or requirement.archived_at is not None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -65,7 +69,7 @@ def require_requirement_access(
         )
 
     project = get_project_or_404(db, requirement.project_id)
-    if project.owner_id == employee.id or employee.is_admin:
+    if allowed is None and project.owner_id == employee.id:
         return requirement
 
     member = db.scalar(
@@ -84,14 +88,10 @@ def require_requirement_access(
     if allowed is None and (member or permission):
         return requirement
 
-    if allowed is not None:
+    if allowed is not None and (member or project.owner_id == employee.id):
         if employee.id == requirement.responsible_employee_id and AccessLevel.EDIT in allowed:
             return requirement
         if employee.id == requirement.reviewer_employee_id and AccessLevel.REVIEW in allowed:
-            return requirement
-        if member and member.access_level in allowed:
-            return requirement
-        if permission and permission.access_level in allowed:
             return requirement
 
     raise HTTPException(
